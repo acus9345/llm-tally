@@ -46,7 +46,7 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc -p tsconfig.build.json && node scripts/build-ui.mjs",
     "test": "npm run build && node --test \"test/*.test.ts\"",
     "lint": "npm run build && biome check . && tsc --noEmit -p tsconfig.json",
     "format": "biome check --write .",
@@ -55,6 +55,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
     "@types/node": "22.20.5",
+    "esbuild": "0.28.2",
     "typescript": "6.0.3"
   },
   "engines": {

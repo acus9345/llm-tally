@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 import { listModels } from "./catalog.js";
 import { LlmTallyError } from "./errors.js";
@@ -16,6 +18,7 @@ export interface CliIO {
 const HELP = `llm-tally - estimate tokens and API cost for OpenAI, Anthropic, Google, xAI, DeepSeek and Mistral models
 
 Usage:
+  llm-tally ui                      Open the calculator in your browser (works offline).
   llm-tally "your prompt text" [options]
   llm-tally --file prompt.txt [options]
   some-command | llm-tally [options]
@@ -32,6 +35,7 @@ Options:
   -n, --requests <n>        Also show the total for this many requests, e.g. 10k.
   -f, --file <path>         Read the prompt from a file (UTF-8 or UTF-16).
       --json                Print machine-readable JSON.
+      --no-open             With "ui": print the page's location instead of opening it.
   -l, --list                List known models, prices and short names.
   -h, --help                Show this help.
   -v, --version             Show the version.
@@ -39,6 +43,7 @@ Options:
 Without -m, -p or --all it compares: ${DEFAULT_COMPARE_MODELS.join(", ")}
 
 Examples:
+  llm-tally ui
   llm-tally "Write a haiku about autumn" -o 50
   llm-tally -f prompt.txt -m sonnet -m gpt-5.5
   llm-tally -f prompt.txt -p anthropic -o 1k -n 10k
@@ -87,6 +92,9 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
   if (values.version) {
     io.stdout(readVersion());
     return 0;
+  }
+  if (positionals.length === 1 && positionals[0].toLowerCase() === "ui" && values.file === undefined) {
+    return openUi(values["no-open"] === true, io);
   }
   if (values.list) {
     printList(positionals.join(" ") || undefined, values.json === true, io);
@@ -141,6 +149,7 @@ function parse(argv: readonly string[]) {
       "output-tokens": { type: "string", short: "o" },
       cached: { type: "string", short: "c" },
       json: { type: "boolean" },
+      "no-open": { type: "boolean" },
       list: { type: "boolean", short: "l" },
       help: { type: "boolean", short: "h" },
       version: { type: "boolean", short: "v" },
@@ -273,6 +282,38 @@ function renderTable(header: string[], rows: string[][]): string[] {
       .join("  ")
       .trimEnd(),
   );
+}
+
+/** Opens the bundled single-file web UI (dist/ui.html) in the default browser. */
+function openUi(noOpen: boolean, io: CliIO): number {
+  const page = fileURLToPath(new URL("./ui.html", import.meta.url));
+  if (!existsSync(page)) {
+    throw new UsageError(
+      `The web UI file is missing (${page}). Reinstall llm-tally, or run "npm run build" in a checkout.`,
+    );
+  }
+  if (noOpen) {
+    io.stdout(page);
+    return 0;
+  }
+  const [command, args] =
+    process.platform === "win32"
+      ? ["explorer.exe", [page]]
+      : process.platform === "darwin"
+        ? ["open", [page]]
+        : ["xdg-open", [page]];
+  try {
+    const child = spawn(command, args, { detached: true, stdio: "ignore" });
+    child.on("error", () =>
+      io.stderr(`Couldn't open a browser automatically. Open this file in any browser:\n${page}`),
+    );
+    child.unref();
+  } catch {
+    io.stderr(`Couldn't open a browser automatically. Open this file in any browser:\n${page}`);
+    return 0;
+  }
+  io.stdout(`Opening the llm-tally calculator in your browser...\n${page}`);
+  return 0;
 }
 
 function readVersion(): string {

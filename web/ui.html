@@ -1,0 +1,473 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>llm-tally — LLM cost calculator</title>
+<meta name="description" content="Paste a prompt and compare what it costs on OpenAI, Anthropic, Google, xAI, DeepSeek and Mistral models.">
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --text: #1b1f24;
+    --muted: #5f6b7a;
+    --line: #e3e7ec;
+    --accent: #2563eb;
+    --accent-soft: #e8efff;
+    --good: #0f8a4b;
+    --good-soft: #e3f6ec;
+    --bar: #c9d8fb;
+    --shadow: 0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 3px rgba(16, 24, 40, 0.08);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216;
+      --card: #171b21;
+      --text: #e8ebef;
+      --muted: #9aa5b1;
+      --line: #2a3038;
+      --accent: #6ea0ff;
+      --accent-soft: #1c2a45;
+      --good: #4cc98a;
+      --good-soft: #15302a;
+      --bar: #2c4170;
+      --shadow: none;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 20px; }
+  header h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
+  header p { margin: 0; color: var(--muted); }
+  .layout { display: grid; grid-template-columns: minmax(300px, 400px) minmax(0, 1fr); gap: 20px; align-items: start; }
+  .layout > * { min-width: 0; }
+  @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
+  .stack > * + * { margin-top: 16px; }
+  label.title, .title { display: block; font-weight: 600; margin-bottom: 6px; }
+  .hint { color: var(--muted); font-size: 13px; }
+  textarea {
+    width: 100%; min-height: 170px; resize: vertical; padding: 10px 12px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text);
+    font: 14px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .drop { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--text); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .seg button:last-child { border-right: 0; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  input[type="number"], input[type="search"] {
+    width: 92px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+    background: var(--bg); color: var(--text); font: inherit; font-size: 14px;
+  }
+  input[type="search"] { width: 100%; }
+  input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .btn:hover { border-color: var(--accent); }
+  .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+  .stat { flex: 1 1 160px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
+  .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+  .stat .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .s { color: var(--muted); font-size: 13px; }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; user-select: none; }
+  th:first-child, td:first-child { text-align: left; }
+  tbody tr:hover { background: var(--accent-soft); }
+  tr.best td { background: var(--good-soft); }
+  .model { font-weight: 600; }
+  .aka { color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .prov { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 6px; }
+  .barcell { width: 26%; min-width: 90px; }
+  .bar { height: 8px; border-radius: 4px; background: var(--bar); }
+  tr.best .bar { background: var(--good); }
+  .empty { color: var(--muted); padding: 24px; text-align: center; }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--accent); }
+  .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  @media (max-width: 520px) {
+    .barcell, .aka, .prov, .col-in { display: none; }
+    th, td { padding: 8px 6px; }
+    td:first-child { white-space: normal; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>llm-tally</h1>
+    <p>How much will this prompt cost? Compare <span id="model-count"></span> models from six providers.</p>
+  </header>
+
+  <div class="layout">
+    <div class="card stack">
+      <div>
+        <label class="title" for="prompt">Your prompt</label>
+        <textarea id="prompt" spellcheck="false" placeholder="Paste a prompt, a document, or chat messages here…">Summarize the following customer feedback in three bullet points and suggest one improvement.</textarea>
+        <div class="row" style="justify-content: space-between; margin-top: 6px;">
+          <span class="hint" id="token-hint"></span>
+          <button class="btn" id="clear" type="button">Clear</button>
+        </div>
+      </div>
+
+      <div class="drop" id="drop">
+        <span class="hint">…or drop a text file here</span>
+        <label class="btn" for="file">Choose file</label>
+        <input class="sr" type="file" id="file" accept=".txt,.md,.json,.csv,.js,.ts,.py,.html,.xml,.yaml,.yml,text/*">
+      </div>
+
+      <div>
+        <span class="title">Expected reply length</span>
+        <div class="row">
+          <div class="seg" id="reply-presets">
+            <button type="button" data-v="0">None</button>
+            <button type="button" data-v="200">Short</button>
+            <button type="button" data-v="1000">Medium</button>
+            <button type="button" data-v="4000">Long</button>
+          </div>
+          <input type="number" id="reply" min="0" step="50" value="200" aria-label="Reply length in tokens">
+          <span class="hint">tokens</span>
+        </div>
+      </div>
+
+      <div>
+        <span class="title">Number of requests</span>
+        <div class="row">
+          <div class="seg" id="req-presets">
+            <button type="button" data-v="1">1</button>
+            <button type="button" data-v="1000">1k</button>
+            <button type="button" data-v="10000">10k</button>
+            <button type="button" data-v="1000000">1M</button>
+          </div>
+          <input type="number" id="requests" min="1" step="1" value="1" aria-label="Number of requests">
+        </div>
+      </div>
+
+      <div>
+        <label class="title" for="cache">Prompt read from cache: <span id="cache-v">0%</span></label>
+        <div class="row">
+          <input type="range" id="cache" min="0" max="100" step="5" value="0">
+        </div>
+        <span class="hint">For repeated prompts (same system prompt or document) that hit the provider's prompt cache.</span>
+      </div>
+
+      <div>
+        <span class="title">Providers</span>
+        <div class="chips" id="providers"></div>
+      </div>
+
+      <div>
+        <span class="title">Models</span>
+        <div class="row">
+          <div class="seg" id="scope">
+            <button type="button" data-v="popular">Popular</button>
+            <button type="button" data-v="all">All</button>
+          </div>
+          <input type="search" id="search" placeholder="Search, e.g. sonnet, grok, mini" aria-label="Search models" style="flex: 1; width: auto;">
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="summary">
+        <div class="stat"><div class="k">Cheapest</div><div class="v" id="s-cheap">–</div><div class="s" id="s-cheap-m"></div></div>
+        <div class="stat"><div class="k">Most expensive</div><div class="v" id="s-dear">–</div><div class="s" id="s-dear-m"></div></div>
+        <div class="stat"><div class="k">Prompt size</div><div class="v" id="s-tokens">–</div><div class="s" id="s-chars"></div></div>
+      </div>
+      <div class="card">
+        <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
+          <span class="hint" id="result-note"></span>
+          <div class="row">
+            <button class="btn" id="copy" type="button">Copy as CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th data-sort="model">Model</th>
+                <th data-sort="inputTokens" class="col-in">Input tokens</th>
+                <th data-sort="cost">Per request</th>
+                <th data-sort="total" id="th-total">Total</th>
+                <th class="barcell"><span class="sr">Relative cost</span></th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    Prices in USD from each provider's pricing page, as of <span id="asof"></span>. Token counts are estimates (usually within 15%).
+    llm-tally __VERSION__ · <a href="https://github.com/acus9345/llm-tally">GitHub</a> · <a href="https://www.npmjs.com/package/llm-tally">npm</a> ·
+    also on the command line: <code>npx llm-tally "your prompt"</code>
+  </footer>
+</div>
+
+<script>/*__LLM_TALLY_BUNDLE__*/</script>
+<script>
+(() => {
+  const T = window.LlmTally;
+  const $ = (id) => document.getElementById(id);
+  const PROVIDER_NAMES = { openai: "OpenAI", anthropic: "Anthropic", google: "Google", xai: "xAI", deepseek: "DeepSeek", mistral: "Mistral" };
+  const models = T.listModels();
+  const providers = [...new Set(models.map((m) => m.provider))];
+  const popular = new Set(T.DEFAULT_COMPARE_MODELS);
+
+  const store = {
+    get(key, fallback) { try { const v = localStorage.getItem("llm-tally:" + key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; } },
+    set(key, value) { try { localStorage.setItem("llm-tally:" + key, JSON.stringify(value)); } catch {} },
+  };
+
+  const state = {
+    reply: store.get("reply", 200),
+    requests: store.get("requests", 1),
+    cache: store.get("cache", 0),
+    scope: store.get("scope", "popular"),
+    providers: new Set(store.get("providers", providers)),
+    sort: { key: "cost", dir: 1 },
+  };
+
+  $("model-count").textContent = models.length;
+  $("asof").textContent = T.PRICES_AS_OF;
+  const savedPrompt = store.get("prompt", null);
+  if (typeof savedPrompt === "string") $("prompt").value = savedPrompt;
+  $("reply").value = state.reply;
+  $("requests").value = state.requests;
+  $("cache").value = state.cache;
+
+  for (const p of providers) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "chip";
+    b.dataset.v = p;
+    b.textContent = PROVIDER_NAMES[p] || p;
+    $("providers").append(b);
+  }
+
+  const fmtInt = (n) => n.toLocaleString("en-US");
+  const fmtCount = (n) => (n >= 1e6 && n % 1e6 === 0 ? n / 1e6 + "M" : n >= 1e3 && n % 1e3 === 0 ? n / 1e3 + "k" : fmtInt(n));
+
+  function syncButtons() {
+    for (const b of $("reply-presets").children) b.setAttribute("aria-pressed", String(Number(b.dataset.v) === state.reply));
+    for (const b of $("req-presets").children) b.setAttribute("aria-pressed", String(Number(b.dataset.v) === state.requests));
+    for (const b of $("scope").children) b.setAttribute("aria-pressed", String(b.dataset.v === state.scope));
+    for (const b of $("providers").children) b.setAttribute("aria-pressed", String(state.providers.has(b.dataset.v)));
+    $("cache-v").textContent = state.cache + "%";
+  }
+
+  let last = [];
+  function compute() {
+    const text = $("prompt").value;
+    const query = $("search").value.trim().toLowerCase();
+    const chosen = models.filter((m) => {
+      if (!state.providers.has(m.provider)) return false;
+      if (query) return [m.id, ...(m.aliases || [])].some((n) => n.toLowerCase().includes(query));
+      return state.scope === "all" || popular.has(m.id);
+    });
+
+    // Count once per tokenizer family, then price each model from those counts.
+    const tokensByFamily = new Map();
+    const tokensFor = (m) => {
+      const fam = m.tokenizer || "openai-o200k";
+      if (!tokensByFamily.has(fam)) tokensByFamily.set(fam, T.countTokens(text, m.id));
+      return tokensByFamily.get(fam);
+    };
+
+    const rows = chosen.map((m) => {
+      const inputTokens = tokensFor(m);
+      const c = T.costFromUsage({
+        model: m.id,
+        inputTokens,
+        outputTokens: state.reply,
+        cachedInputTokens: Math.round((inputTokens * state.cache) / 100),
+      });
+      return { m, inputTokens, cost: c.totalCost, total: c.totalCost * state.requests, warnings: c.warnings, longContext: c.longContext };
+    });
+
+    const { key, dir } = state.sort;
+    rows.sort((a, b) => {
+      const va = key === "model" ? a.m.id : a[key];
+      const vb = key === "model" ? b.m.id : b[key];
+      return (va < vb ? -1 : va > vb ? 1 : 0) * dir || a.cost - b.cost;
+    });
+    last = rows;
+    render(rows, text);
+  }
+
+  function render(rows, text) {
+    const many = state.requests > 1;
+    $("th-total").textContent = many ? "× " + fmtCount(state.requests) : "Total";
+    $("th-total").style.display = many ? "" : "none";
+
+    const base = T.countTokens(text);
+    $("token-hint").textContent = text ? "≈ " + fmtInt(base) + " tokens (GPT count; Claude ≈ " + fmtInt(T.countTokens(text, "sonnet")) + ")" : "";
+    $("s-tokens").textContent = fmtInt(base);
+    $("s-chars").textContent = fmtInt(text.length) + " characters";
+
+    const tbody = $("rows");
+    tbody.textContent = "";
+    if (rows.length === 0) {
+      const tr = document.createElement("tr");
+      tr.innerHTML = '<td class="empty" colspan="5">No models match. Turn on a provider or clear the search.</td>';
+      tbody.append(tr);
+      $("s-cheap").textContent = $("s-dear").textContent = "–";
+      $("s-cheap-m").textContent = $("s-dear-m").textContent = "";
+      $("result-note").textContent = "";
+      return;
+    }
+
+    const byCost = [...rows].sort((a, b) => a.cost - b.cost);
+    const cheap = byCost[0];
+    const dear = byCost[byCost.length - 1];
+    const amount = (r) => T.formatUsd(many ? r.total : r.cost);
+    $("s-cheap").textContent = amount(cheap);
+    $("s-cheap-m").textContent = cheap.m.id;
+    $("s-dear").textContent = amount(dear);
+    const ratio = cheap.cost > 0 ? dear.cost / cheap.cost : 0;
+    $("s-dear-m").textContent = dear.m.id + (ratio >= 1.5 ? " · " + Math.round(ratio) + "× the cheapest" : "");
+    $("result-note").textContent = rows.length + " models · " + fmtInt(state.reply) + "-token reply" + (many ? " · " + fmtCount(state.requests) + " requests" : "");
+
+    const max = dear.cost || 1;
+    for (const r of rows) {
+      const tr = document.createElement("tr");
+      if (r === cheap) tr.className = "best";
+      const m = r.m;
+      tr.title = m.id + ": $" + m.input + " in / $" + (m.cachedInput ?? m.input) + " cached / $" + m.output + " out per 1M tokens" + (r.warnings.length ? "\n" + r.warnings.join("\n") : "");
+
+      const name = document.createElement("td");
+      const strong = document.createElement("span");
+      strong.className = "model";
+      strong.textContent = m.id;
+      const prov = document.createElement("span");
+      prov.className = "prov";
+      prov.textContent = PROVIDER_NAMES[m.provider] || m.provider;
+      name.append(strong, prov);
+      const short = (m.aliases || []).find((a) => !/\d/.test(a) && a.length < m.id.length);
+      if (short) {
+        const aka = document.createElement("span");
+        aka.className = "aka";
+        aka.textContent = "“" + short + "”";
+        aka.title = "Short name you can use instead of " + m.id;
+        name.append(aka);
+      }
+
+      const cells = [fmtInt(r.inputTokens) + (r.longContext ? " ⚠" : ""), T.formatUsd(r.cost), T.formatUsd(r.total)].map((t) => {
+        const td = document.createElement("td");
+        td.textContent = t;
+        return td;
+      });
+      cells[0].className = "col-in";
+      cells[2].style.display = many ? "" : "none";
+
+      const barTd = document.createElement("td");
+      barTd.className = "barcell";
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.style.width = Math.max(2, (r.cost / max) * 100) + "%";
+      barTd.append(bar);
+
+      tr.append(name, ...cells, barTd);
+      tbody.append(tr);
+    }
+  }
+
+  let timer;
+  const schedule = () => { clearTimeout(timer); timer = setTimeout(compute, 120); };
+  const save = () => {
+    store.set("reply", state.reply);
+    store.set("requests", state.requests);
+    store.set("cache", state.cache);
+    store.set("scope", state.scope);
+    store.set("providers", [...state.providers]);
+  };
+  const update = () => { syncButtons(); save(); schedule(); };
+
+  $("prompt").addEventListener("input", () => {
+    const v = $("prompt").value;
+    if (v.length <= 200000) store.set("prompt", v);
+    schedule();
+  });
+  $("clear").addEventListener("click", () => { $("prompt").value = ""; store.set("prompt", ""); $("prompt").focus(); schedule(); });
+  $("search").addEventListener("input", schedule);
+
+  $("reply-presets").addEventListener("click", (e) => {
+    const v = e.target.dataset && e.target.dataset.v;
+    if (v === undefined) return;
+    state.reply = Number(v); $("reply").value = v; update();
+  });
+  $("reply").addEventListener("input", () => { state.reply = Math.max(0, Math.round(Number($("reply").value) || 0)); update(); });
+
+  $("req-presets").addEventListener("click", (e) => {
+    const v = e.target.dataset && e.target.dataset.v;
+    if (v === undefined) return;
+    state.requests = Number(v); $("requests").value = v; update();
+  });
+  $("requests").addEventListener("input", () => { state.requests = Math.max(1, Math.round(Number($("requests").value) || 1)); update(); });
+
+  $("cache").addEventListener("input", () => { state.cache = Number($("cache").value); update(); });
+
+  $("scope").addEventListener("click", (e) => {
+    const v = e.target.dataset && e.target.dataset.v;
+    if (!v) return;
+    state.scope = v; update();
+  });
+  $("providers").addEventListener("click", (e) => {
+    const v = e.target.dataset && e.target.dataset.v;
+    if (!v) return;
+    if (state.providers.has(v)) state.providers.delete(v); else state.providers.add(v);
+    update();
+  });
+
+  for (const th of document.querySelectorAll("th[data-sort]")) {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : 1 };
+      compute();
+    });
+  }
+
+  async function loadFile(file) {
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) { alert("That file is larger than 20 MB. Pick a smaller text file."); return; }
+    $("prompt").value = await file.text();
+    store.set("prompt", $("prompt").value.length <= 200000 ? $("prompt").value : "");
+    schedule();
+  }
+  $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
+  const drop = $("drop");
+  for (const ev of ["dragenter", "dragover"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); });
+  for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); });
+  drop.addEventListener("drop", (e) => loadFile(e.dataTransfer.files[0]));
+
+  $("copy").addEventListener("click", async () => {
+    const lines = [["model", "provider", "input_tokens", "output_tokens", "cost_per_request_usd", "requests", "total_usd"].join(",")];
+    for (const r of last) lines.push([r.m.id, r.m.provider, r.inputTokens, state.reply, r.cost, state.requests, r.total].join(","));
+    try { await navigator.clipboard.writeText(lines.join("\n")); $("copy").textContent = "Copied!"; }
+    catch { $("copy").textContent = "Copy failed"; }
+    setTimeout(() => { $("copy").textContent = "Copy as CSV"; }, 1500);
+  });
+
+  syncButtons();
+  compute();
+})();
+</script>
+</body>
+</html>

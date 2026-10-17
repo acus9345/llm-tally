@@ -7,6 +7,17 @@ Estimate tokens and API cost for OpenAI, Anthropic (Claude), Google (Gemini), xA
 - **Zero dependencies.** Small, fast, works offline (no tokenizer vocabularies to download).
 - **Runs anywhere.** Node.js, Bun, Deno and browsers; CLI tested on Windows, macOS and Linux.
 - **Typed.** Written in TypeScript, ships its own type definitions.
+- **Web calculator.** Paste a prompt and compare every model in your browser, no code needed.
+
+## Web calculator
+
+The easiest way to use llm-tally: open **https://acus9345.github.io/llm-tally/**, paste a prompt (or drop a text file), pick the reply length and number of requests, and compare costs across all providers. Everything runs in your browser; nothing is uploaded.
+
+Or open the same page offline from the command line:
+
+```sh
+npx llm-tally ui
+```
 
 ## Install
 
@@ -96,6 +107,7 @@ Model IDs are also accepted with provider prefixes as used by OpenRouter, LiteLL
 ## CLI
 
 ```text
+llm-tally ui
 llm-tally "your prompt text" [options]
 llm-tally --file prompt.txt [options]
 some-command | llm-tally [options]
@@ -113,6 +125,7 @@ llm-tally --list [provider or search]
 | `-f, --file <path>` | Read the prompt from a file (UTF-8, or UTF-16 as written by Windows PowerShell). |
 | `--json` | Machine-readable output. |
 | `-l, --list [filter]` | List models, prices and short names; filter by provider or part of a name. |
+| `--no-open` | With `ui`: print the page's file path instead of opening a browser. |
 | `-h, --help` / `-v, --version` | Help and version. |
 
 Without `-m`, `-p` or `--all`, it compares a current flagship and a budget model from each provider.

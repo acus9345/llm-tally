@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, describe, test } from "node:test";
@@ -147,6 +147,18 @@ describe("cli", () => {
       assert.match(r.err, /llm-tally --help/);
       assert.doesNotMatch(r.err, /\n\s+at /);
     }
+  });
+
+  test("ui --no-open prints the bundled web page, which inlines the library", async () => {
+    const r = await cli(["ui", "--no-open"]);
+    assert.equal(r.code, 0, r.err);
+    const page = r.out.trim();
+    assert.match(page, /ui\.html$/);
+    const html = readFileSync(page, "utf8");
+    assert.match(html, /<title>llm-tally/);
+    assert.match(html, /LlmTally/);
+    assert.doesNotMatch(html, /__LLM_TALLY_BUNDLE__|__VERSION__/);
+    assert.doesNotMatch(html, /<script[^>]+src=/); // fully self-contained, works from file://
   });
 
   test("the real binary runs and pipes stdin", () => {
