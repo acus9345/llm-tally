@@ -5,6 +5,7 @@ import {
   costFromUsage,
   countTokens,
   DEFAULT_COMPARE_MODELS,
+  EFFORT_REASONING_TOKENS,
   estimateCost,
   findModel,
   formatUsd,
@@ -109,7 +110,7 @@ describe("compareCosts", () => {
     for (let i = 1; i < results.length; i++) assert.ok(results[i - 1].totalCost <= results[i].totalCost);
     assert.deepEqual(
       new Set(results.map((r) => r.provider)),
-      new Set(["openai", "anthropic", "google", "xai", "deepseek", "mistral"]),
+      new Set(["openai", "anthropic", "google", "xai", "deepseek", "mistral", "alibaba", "moonshot", "zai", "minimax"]),
     );
   });
 
@@ -242,7 +243,84 @@ describe("new providers", () => {
 
   test("every provider is represented in the default comparison", () => {
     const providers = new Set(DEFAULT_COMPARE_MODELS.map((id) => getModel(id).provider));
-    assert.deepEqual(providers, new Set(["openai", "anthropic", "google", "xai", "deepseek", "mistral"]));
+    assert.deepEqual(
+      providers,
+      new Set(["openai", "anthropic", "google", "xai", "deepseek", "mistral", "alibaba", "moonshot", "zai", "minimax"]),
+    );
+  });
+});
+
+describe("reasoning effort", () => {
+  test("effort adds typical thinking tokens, billed as output", () => {
+    const plain = estimateCost("Hello", { model: "gpt-5.5", outputTokens: 500 });
+    const medium = estimateCost("Hello", { model: "gpt-5.5", outputTokens: 500, effort: "medium" });
+    assert.equal(plain.reasoningTokens, 0);
+    assert.equal(medium.reasoningTokens, EFFORT_REASONING_TOKENS.medium);
+    assert.equal(medium.outputTokens, 500 + EFFORT_REASONING_TOKENS.medium);
+    close(medium.outputCost, ((500 + 4000) * 30) / 1e6);
+    assert.deepEqual(Object.keys(EFFORT_REASONING_TOKENS), ["none", "low", "medium", "high", "max"]);
+  });
+
+  test("models that don't reason get no thinking tokens", () => {
+    for (const id of ["gpt-4.1", "gpt-4o-mini", "command-a", "nova-pro", "sonar", "grok-4.20-0309-non-reasoning"]) {
+      const c = estimateCost("Hello", { model: id, outputTokens: 100, effort: "max" });
+      assert.equal(c.reasoningTokens, 0, id);
+      assert.equal(c.outputTokens, 100, id);
+    }
+    assert.equal(estimateCost("Hello", { model: "nova-2-lite", effort: "low" }).reasoningTokens, 1000);
+  });
+
+  test("reasoningTokens overrides effort; bad values explain themselves", () => {
+    assert.equal(estimateCost("Hello", { model: "sonnet", effort: "max", reasoningTokens: 123 }).reasoningTokens, 123);
+    assert.throws(() => estimateCost("Hello", { model: "sonnet", effort: "huge" as never }), /effort must be one of/);
+    assert.throws(() => estimateCost("Hello", { model: "sonnet", reasoningTokens: -1 }), /reasoningTokens must be/);
+  });
+
+  test("compareCosts passes effort through", () => {
+    const results = compareCosts("Hello", { models: ["sonnet", "gpt-4.1"], effort: "high" });
+    const byId = Object.fromEntries(results.map((r) => [r.model, r.reasoningTokens]));
+    assert.deepEqual(byId, { "claude-sonnet-5-5": 12000, "gpt-4.1": 0 });
+  });
+});
+
+describe("more providers", () => {
+  test("IDs from provider SDKs, routers and Bedrock resolve", () => {
+    const expected: Record<string, string> = {
+      "minimax-m3": "MiniMax-M3",
+      "MiniMax-M3": "MiniMax-M3",
+      "qwen/qwen3.8-max": "qwen3.8-max",
+      "z-ai/glm-5.3": "glm-5.3",
+      "moonshotai/kimi-k3": "kimi-k3",
+      kimi: "kimi-k3",
+      "cohere/command-a": "command-a-03-2025",
+      "amazon.nova-pro-v1:0": "nova-pro",
+      "us.amazon.nova-2-lite-v1:0": "nova-2-lite",
+      "perplexity/sonar-pro": "sonar-pro",
+      "jamba-large": "jamba-large",
+      "claude-sonnet-4-5-20250929": "claude-sonnet-4-5",
+    };
+    for (const [id, want] of Object.entries(expected)) assert.equal(getModel(id).id, want, id);
+  });
+
+  test("per-request fees are added (Perplexity search)", () => {
+    const c = costFromUsage({ model: "sonar", inputTokens: 1000, outputTokens: 1000 });
+    assert.equal(c.requestCost, 0.005);
+    close(c.totalCost, 0.005 + (1000 * 1 + 1000 * 1) / 1e6);
+    assert.equal(costFromUsage({ model: "gpt-5.5", inputTokens: 10 }).requestCost, 0);
+  });
+
+  test("tiered prices apply above each provider's threshold", () => {
+    assert.equal(costFromUsage({ model: "qwen3.7-flash", inputTokens: 32_000 }).longContext, false);
+    const big = costFromUsage({ model: "qwen3.7-flash", inputTokens: 32_001, outputTokens: 1000 });
+    assert.equal(big.longContext, true);
+    close(big.outputCost, (1000 * 0.4) / 1e6);
+    assert.equal(costFromUsage({ model: "MiniMax-M3", inputTokens: 600_000 }).longContext, true);
+  });
+
+  test("covers at least 14 providers and 130 models", () => {
+    const providers = new Set(listModels().map((m) => m.provider));
+    assert.ok(providers.size >= 14, String(providers.size));
+    assert.ok(listModels().length >= 130, String(listModels().length));
   });
 });
 

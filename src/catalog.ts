@@ -8,7 +8,8 @@ for (const model of BUILTIN_MODELS) add(model);
 
 function add(model: ModelInfo): void {
   registry.set(model.id, model);
-  for (const alias of model.aliases ?? []) aliases.set(alias.toLowerCase(), model.id);
+  // Lookups are case-insensitive, so "minimax-m3" finds "MiniMax-M3".
+  for (const alias of [model.id, ...(model.aliases ?? [])]) aliases.set(alias.toLowerCase(), model.id);
 }
 
 function lookup(key: string): ModelInfo | undefined {
@@ -20,7 +21,8 @@ function lookup(key: string): ModelInfo | undefined {
 const PREFIXES = [
   /^models\//,
   /^(openai|anthropic|google|gemini|vertex_ai|bedrock|xai|x-ai|deepseek|mistral|mistralai)\//,
-  /^(us\.|eu\.|apac\.|global\.)?anthropic\./,
+  /^(qwen|alibaba|dashscope|moonshot|moonshotai|zai|z-ai|zhipu|minimax|perplexity|cohere|amazon|ai21)\//,
+  /^(us\.|eu\.|apac\.|global\.)?(anthropic|amazon|cohere|ai21)\./,
 ];
 // Dated snapshots: "gpt-4o-2024-08-06", "claude-haiku-4-5-20251001", "claude-opus-4-5@20251101", "-latest".
 const SUFFIXES = [/-\d{4}-\d{2}-\d{2}$/, /[-@]\d{8}$/, /-latest$/, /-v\d+(:\d+)?$/, /-preview-\d{2}-\d{4}$/];
@@ -123,7 +125,7 @@ export function registerModel(model: ModelInfo): void {
 }
 
 function closestIds(key: string, count: number): string[] {
-  return [...new Set([...registry.keys(), ...aliases.keys()])]
+  return [...aliases.keys()]
     .map((id) => ({ id, d: distance(key, id) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, count)

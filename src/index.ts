@@ -1,5 +1,6 @@
 /**
- * llm-tally: estimate tokens and API cost across OpenAI, Anthropic and Google models.
+ * llm-tally: estimate tokens and API cost across OpenAI, Anthropic, Google, xAI, DeepSeek, Mistral, Qwen,
+ * Kimi, GLM, MiniMax, Perplexity, Cohere, Amazon Nova and AI21 models.
  *
  * @example
  * import { estimateCost, formatUsd } from "llm-tally";
@@ -23,14 +24,17 @@ export {
   type EstimateOptions,
   estimateCost,
   formatUsd,
+  type ReplyOptions,
   type TallyInput,
   type Usage,
 } from "./estimate.js";
 export {
   DEFAULT_COMPARE_MODELS,
+  EFFORT_REASONING_TOKENS,
   type LongContextPricing,
   type ModelInfo,
   PRICES_AS_OF,
   type Provider,
+  type ReasoningEffort,
   type TokenizerFamily,
 } from "./models.js";

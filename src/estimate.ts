@@ -1,6 +1,6 @@
 import { getModel, listModels } from "./catalog.js";
 import { assertTokenCount, describe, LlmTallyError } from "./errors.js";
-import { DEFAULT_COMPARE_MODELS, type ModelInfo } from "./models.js";
+import { DEFAULT_COMPARE_MODELS, EFFORT_REASONING_TOKENS, type ModelInfo, type ReasoningEffort } from "./models.js";
 import { estimateTextTokens } from "./tokenize.js";
 
 /** One part of a multi-part message. Only text parts are counted. */
@@ -24,26 +24,34 @@ export interface CountOptions {
   model?: string;
 }
 
-/** Options for {@link estimateCost}. */
-export interface EstimateOptions {
-  /** Model ID to price, e.g. `"gpt-5.5"` or `"claude-sonnet-5-5"`. */
-  model: string;
-  /** How many tokens you expect the reply to use (including reasoning). Defaults to 0. */
+/** Reply-related options shared by {@link estimateCost} and {@link compareCosts}. */
+export interface ReplyOptions {
+  /** Length of the visible answer, in tokens. Defaults to 0. */
   outputTokens?: number;
+  /**
+   * How hard reasoning models think: `"none"`, `"low"`, `"medium"`, `"high"` or `"max"`.
+   * Adds the typical thinking tokens for that level ({@link EFFORT_REASONING_TOKENS}); models that
+   * cannot think get none. Defaults to `"none"`.
+   */
+  effort?: ReasoningEffort;
+  /** Exact thinking tokens per request, instead of `effort`. */
+  reasoningTokens?: number;
   /** How many of the input tokens are read from the prompt cache. Defaults to 0. */
   cachedInputTokens?: number;
 }
 
+/** Options for {@link estimateCost}. */
+export interface EstimateOptions extends ReplyOptions {
+  /** Model ID to price, e.g. `"gpt-5.5"` or `"sonnet"`. */
+  model: string;
+}
+
 /** Options for {@link compareCosts}. */
-export interface CompareOptions {
+export interface CompareOptions extends ReplyOptions {
   /** Models to compare. Defaults to a few current models from each provider. */
   models?: readonly string[];
   /** Compare every known model from these providers instead, e.g. `["anthropic", "xai"]`. */
   providers?: readonly string[];
-  /** How many tokens you expect the reply to use. Defaults to 0. */
-  outputTokens?: number;
-  /** How many of the input tokens are read from the prompt cache. Defaults to 0. */
-  cachedInputTokens?: number;
 }
 
 /** Token counts reported by a provider's API, for exact pricing with {@link costFromUsage}. */
@@ -71,15 +79,19 @@ export interface CostEstimate {
   inputTokens: number;
   /** Input tokens priced at the cache rate. */
   cachedInputTokens: number;
-  /** Output tokens. */
+  /** Billed output tokens: the visible answer plus any thinking. */
   outputTokens: number;
+  /** The part of `outputTokens` spent thinking (0 for models that don't reason). */
+  reasoningTokens: number;
   /** Cost of the uncached input tokens. */
   inputCost: number;
   /** Cost of the cached input tokens. */
   cachedInputCost: number;
-  /** Cost of the output tokens. */
+  /** Cost of the output tokens, including thinking. */
   outputCost: number;
-  /** `inputCost + cachedInputCost + outputCost`. */
+  /** Fixed per-request fee (for example a web-search fee); usually 0. */
+  requestCost: number;
+  /** `inputCost + cachedInputCost + outputCost + requestCost`. */
   totalCost: number;
   /** Always `"USD"`. */
   currency: "USD";
@@ -118,10 +130,10 @@ export function countTokens(input: TallyInput, options: CountOptions | string = 
 /**
  * Estimates what sending `input` to `model` costs, in US dollars.
  *
- * @param options A model ID (`"gpt-5.5"`, `"sonnet"`) or `{ model, outputTokens?, cachedInputTokens? }`.
+ * @param options A model ID (`"gpt-5.5"`, `"sonnet"`) or `{ model, outputTokens?, effort?, cachedInputTokens? }`.
  * @example
  * estimateCost("Summarize this article...", "gpt-5.5").totalCost;
- * estimateCost("Summarize this article...", { model: "sonnet", outputTokens: 300 });
+ * estimateCost("Summarize this article...", { model: "sonnet", outputTokens: 300, effort: "medium" });
  */
 export function estimateCost(input: TallyInput, options: EstimateOptions | string): CostEstimate {
   if (typeof options === "string") options = { model: options };
@@ -133,13 +145,13 @@ export function estimateCost(input: TallyInput, options: EstimateOptions | strin
   }
   const model = getModel(options.model);
   const inputTokens = countTokens(input, { model: model.id });
-  return price(model, inputTokens, options.outputTokens ?? 0, options.cachedInputTokens ?? 0, true);
+  return price(model, inputTokens, options.outputTokens ?? 0, options.cachedInputTokens ?? 0, true, thinking(options));
 }
 
 /**
  * Prices the same request on several models, cheapest first.
  *
- * @param options A list of model IDs, or `{ models?, providers?, outputTokens?, cachedInputTokens? }`.
+ * @param options A list of model IDs, or `{ models?, providers?, outputTokens?, effort?, cachedInputTokens? }`.
  * @example
  * compareCosts(prompt, ["gpt-5.5", "sonnet", "grok"]);
  * compareCosts(prompt, { providers: ["anthropic"], outputTokens: 500 });
@@ -153,10 +165,10 @@ export function compareCosts(input: TallyInput, options: CompareOptions | readon
       'compareCosts(): "models" must be a non-empty array of model IDs, e.g. ["gpt-5.5", "claude-sonnet-5-5"].',
     );
   }
-  const { outputTokens, cachedInputTokens } = opts;
+  const { outputTokens, cachedInputTokens, effort, reasoningTokens } = opts;
   const seen = new Set<string>(); // "sonnet" and "claude-sonnet-5-5" are the same model
   return ids
-    .map((id) => estimateCost(input, { model: id, outputTokens, cachedInputTokens }))
+    .map((id) => estimateCost(input, { model: id, outputTokens, cachedInputTokens, effort, reasoningTokens }))
     .filter((estimate) => !seen.has(estimate.model) && seen.add(estimate.model) !== undefined)
     .sort((a, b) => a.totalCost - b.totalCost || a.model.localeCompare(b.model));
 }
@@ -196,15 +208,35 @@ export function formatUsd(amount: number): string {
   return `$${rounded.toFixed(digits)}`;
 }
 
+/** Thinking tokens requested by `reasoningTokens` or `effort`. */
+function thinking(options: ReplyOptions): number {
+  if (options.reasoningTokens !== undefined) {
+    assertTokenCount("reasoningTokens", options.reasoningTokens);
+    return options.reasoningTokens;
+  }
+  if (options.effort === undefined) return 0;
+  const tokens = EFFORT_REASONING_TOKENS[options.effort];
+  if (tokens === undefined) {
+    throw new LlmTallyError(
+      "INVALID_OPTION",
+      `effort must be one of ${Object.keys(EFFORT_REASONING_TOKENS).join(", ")}, but got ${describe(options.effort)}.`,
+    );
+  }
+  return tokens;
+}
+
 function price(
   model: ModelInfo,
   inputTokens: number,
-  outputTokens: number,
+  answerTokens: number,
   cachedInputTokens: number,
   approximate: boolean,
+  thinkingTokens = 0,
 ): CostEstimate {
-  assertTokenCount("outputTokens", outputTokens);
+  assertTokenCount("outputTokens", answerTokens);
   assertTokenCount("cachedInputTokens", cachedInputTokens);
+  const reasoningTokens = model.reasoning === false ? 0 : thinkingTokens;
+  const outputTokens = answerTokens + reasoningTokens;
   const warnings: string[] = [];
   let cached = cachedInputTokens;
   if (cached > inputTokens) {
@@ -228,16 +260,19 @@ function price(
   const inputCost = usd((inputTokens - cached) * rates.input);
   const cachedInputCost = usd(cached * cachedRate);
   const outputCost = usd(outputTokens * rates.output);
+  const requestCost = model.requestFee ?? 0;
   return {
     model: model.id,
     provider: model.provider,
     inputTokens,
     cachedInputTokens: cached,
     outputTokens,
+    reasoningTokens,
     inputCost,
     cachedInputCost,
     outputCost,
-    totalCost: roundUsd(inputCost + cachedInputCost + outputCost),
+    requestCost,
+    totalCost: roundUsd(inputCost + cachedInputCost + outputCost + requestCost),
     currency: "USD",
     approximate,
     longContext: long,

@@ -14,6 +14,7 @@ const FAMILY_FACTOR: Record<TokenizerFamily, number> = {
   xai: 1,
   deepseek: 1.05,
   mistral: 1.1,
+  generic: 1.05,
 };
 
 // One alternative per kind of text piece; the capture group that matches tells us which kind it is.

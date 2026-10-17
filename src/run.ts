@@ -5,7 +5,7 @@ import { parseArgs } from "node:util";
 import { listModels } from "./catalog.js";
 import { LlmTallyError } from "./errors.js";
 import { type CostEstimate, compareCosts, formatUsd } from "./estimate.js";
-import { DEFAULT_COMPARE_MODELS, PRICES_AS_OF } from "./models.js";
+import { EFFORT_REASONING_TOKENS, PRICES_AS_OF, type ReasoningEffort } from "./models.js";
 
 /** Where the CLI reads and writes. Swappable so tests don't touch the real terminal. */
 export interface CliIO {
@@ -15,7 +15,9 @@ export interface CliIO {
   readStdin: () => Promise<string | undefined>;
 }
 
-const HELP = `llm-tally - estimate tokens and API cost for OpenAI, Anthropic, Google, xAI, DeepSeek and Mistral models
+const PROVIDERS = [...new Set(listModels().map((m) => m.provider))].join(", ");
+
+const HELP = `llm-tally - estimate what a prompt costs on ${listModels().length} LLMs from ${PROVIDERS.split(", ").length} providers
 
 Usage:
   llm-tally ui                      Open the calculator in your browser (works offline).
@@ -25,14 +27,15 @@ Usage:
   llm-tally --list [provider or search]
 
 Options:
-  -m, --model <id>          Model to price: an API ID or short name (sonnet, opus, grok, gemini-flash).
+  -m, --model <id>          Model to price: an API ID or short name (sonnet, opus, grok, kimi, glm).
                             Repeat or comma-separate for several.
-  -p, --provider <name>     Compare every model from a provider: openai, anthropic, google, xai,
-                            deepseek, mistral. Repeat or comma-separate for several.
+  -p, --provider <name>     Compare every model from a provider. Repeat or comma-separate.
       --all                 Compare every known model.
-  -o, --output-tokens <n>   Expected reply length in tokens, e.g. 500 or 2k. Default: 0
-  -c, --cached <n>          Input tokens served from the prompt cache. Default: 0
+  -e, --effort <level>      Reasoning effort: none, low, medium, high or max. Adds typical thinking
+                            tokens to models that reason. Default: none
+  -o, --output-tokens <n>   Length of the visible answer, e.g. 500 or 2k. Default: 0
   -n, --requests <n>        Also show the total for this many requests, e.g. 10k.
+  -c, --cached <n>          Input tokens served from the prompt cache. Default: 0
   -f, --file <path>         Read the prompt from a file (UTF-8 or UTF-16).
       --json                Print machine-readable JSON.
       --no-open             With "ui": print the page's location instead of opening it.
@@ -40,15 +43,15 @@ Options:
   -h, --help                Show this help.
   -v, --version             Show the version.
 
-Without -m, -p or --all it compares: ${DEFAULT_COMPARE_MODELS.join(", ")}
+Providers: ${PROVIDERS}
+Without -m, -p or --all it compares a flagship and a budget model from the main providers.
 
 Examples:
   llm-tally ui
   llm-tally "Write a haiku about autumn" -o 50
-  llm-tally -f prompt.txt -m sonnet -m gpt-5.5
-  llm-tally -f prompt.txt -p anthropic -o 1k -n 10k
-  llm-tally -f prompt.txt -m grok,deepseek-flash --json
-  llm-tally --list mistral
+  llm-tally -f prompt.txt -m sonnet,gpt-5.5 -e medium -o 500
+  llm-tally -f prompt.txt -p anthropic -e high -n 10k
+  llm-tally --list qwen
 
 Token counts are estimates (usually within 15%). Prices are USD, as of ${PRICES_AS_OF}.`;
 
@@ -102,6 +105,7 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
   }
 
   const outputTokens = parseCount("--output-tokens", values["output-tokens"]);
+  const effort = parseEffort(values.effort);
   const cachedInputTokens = parseCount("--cached", values.cached);
   const requests = values.requests === undefined ? 1 : parseCount("--requests", values.requests);
   if (requests < 1) throw new UsageError("--requests must be at least 1.");
@@ -115,6 +119,7 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
     ...(providers.length > 0 && models.length === 0 ? { providers } : {}),
     outputTokens,
     cachedInputTokens,
+    effort,
   });
 
   if (values.json) {
@@ -122,15 +127,18 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
       requests > 1 ? results.map((r) => ({ ...r, requests, totalForRequests: r.totalCost * requests })) : results;
     io.stdout(JSON.stringify(data, null, 2));
   } else {
-    io.stdout(formatTable(results, outputTokens, requests));
+    io.stdout(formatTable(results, requests, effort));
   }
   return 0;
 }
 
-/** Turns repeated and comma-separated flag values into one clean list. */
+/**
+ * Turns repeated and comma-separated flag values into one clean list. Spaces also separate,
+ * because PowerShell can pass `-m a,b` through npx as the single argument "a b".
+ */
 function splitList(values: string[] | undefined): string[] {
   return (values ?? [])
-    .flatMap((v) => v.split(","))
+    .flatMap((v) => v.split(/[\s,]+/))
     .map((v) => v.trim())
     .filter(Boolean);
 }
@@ -147,6 +155,7 @@ function parse(argv: readonly string[]) {
       requests: { type: "string", short: "n" },
       file: { type: "string", short: "f" },
       "output-tokens": { type: "string", short: "o" },
+      effort: { type: "string", short: "e" },
       cached: { type: "string", short: "c" },
       json: { type: "boolean" },
       "no-open": { type: "boolean" },
@@ -208,7 +217,15 @@ function decode(bytes: Buffer): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
-function formatTable(results: CostEstimate[], outputTokens: number, requests: number): string {
+/** Validates --effort. */
+function parseEffort(raw: string | undefined): ReasoningEffort {
+  if (raw === undefined) return "none";
+  const level = raw.trim().toLowerCase();
+  if (level in EFFORT_REASONING_TOKENS) return level as ReasoningEffort;
+  throw new UsageError(`--effort must be one of ${Object.keys(EFFORT_REASONING_TOKENS).join(", ")}, but got "${raw}".`);
+}
+
+function formatTable(results: CostEstimate[], requests: number, effort: ReasoningEffort): string {
   const many = requests > 1;
   const header = ["MODEL", "PROVIDER", "INPUT TOKENS", "OUTPUT TOKENS", "COST (USD)"];
   if (many) header.push(`x ${requests.toLocaleString("en-US")} REQUESTS`);
@@ -217,7 +234,7 @@ function formatTable(results: CostEstimate[], outputTokens: number, requests: nu
       r.model,
       r.provider,
       r.inputTokens.toLocaleString("en-US"),
-      outputTokens.toLocaleString("en-US"),
+      r.outputTokens.toLocaleString("en-US"),
       formatUsd(r.totalCost),
     ];
     if (many) row.push(formatUsd(r.totalCost * requests));
@@ -234,7 +251,13 @@ function formatTable(results: CostEstimate[], outputTokens: number, requests: nu
         (ratio >= 1.5 ? `, ${Math.round(ratio)}x cheaper than ${priciest.model}.` : "."),
     );
   }
-  if (outputTokens === 0) summary.push("Tip: add -o <n> to include the reply, e.g. -o 500.");
+  if (results.every((r) => r.outputTokens === 0)) {
+    summary.push("Tip: add -o 500 for the answer and -e medium for thinking, to include the reply.");
+  } else if (effort !== "none" && results.some((r) => r.reasoningTokens === 0)) {
+    summary.push(
+      `Output includes ~${EFFORT_REASONING_TOKENS[effort].toLocaleString("en-US")} thinking tokens on models that reason.`,
+    );
+  }
   const warnings = results.flatMap((r) => r.warnings.map((w) => `warning: ${w}`));
   const note = `Token counts are estimates (usually within 15%). Prices as of ${PRICES_AS_OF}.`;
   return [...lines, "", ...summary, note, ...warnings].join("\n");

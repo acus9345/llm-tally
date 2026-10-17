@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>llm-tally — LLM cost calculator</title>
-<meta name="description" content="Paste a prompt and compare what it costs on OpenAI, Anthropic, Google, xAI, DeepSeek and Mistral models.">
+<meta name="description" content="Paste a prompt and compare what it costs on 100+ LLMs from OpenAI, Anthropic, Google, xAI, DeepSeek, Mistral, Qwen, Kimi and more.">
 <style>
   :root {
     --bg: #f6f7f9;
@@ -37,12 +37,7 @@
     }
   }
   * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   .wrap { max-width: 1180px; margin: 0 auto; padding: 24px 16px 48px; }
   header { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 20px; }
   header h1 { margin: 0; font-size: 26px; letter-spacing: -0.02em; }
@@ -51,59 +46,62 @@
   .layout > * { min-width: 0; }
   @media (max-width: 860px) { .layout { grid-template-columns: minmax(0, 1fr); } }
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; box-shadow: var(--shadow); }
-  .stack > * + * { margin-top: 16px; }
-  label.title, .title { display: block; font-weight: 600; margin-bottom: 6px; }
+  .stack > * + * { margin-top: 18px; }
+  .title { display: block; font-weight: 600; margin-bottom: 6px; }
   .hint { color: var(--muted); font-size: 13px; }
   textarea {
-    width: 100%; min-height: 170px; resize: vertical; padding: 10px 12px;
+    width: 100%; min-height: 160px; resize: vertical; padding: 10px 12px;
     border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--text);
     font: 14px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
   }
-  textarea:focus, input:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-  .drop { border: 1px dashed var(--line); border-radius: 8px; padding: 8px 10px; display: flex; gap: 8px; align-items: center; justify-content: space-between; flex-wrap: wrap; }
-  .drop.over { border-color: var(--accent); background: var(--accent-soft); }
+  textarea.over { border-color: var(--accent); background: var(--accent-soft); }
+  textarea:focus, input:focus, button:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-  .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
-  .seg button { border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--text); padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .between { justify-content: space-between; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-right: 1px solid var(--line); background: transparent; color: var(--text); padding: 6px 11px; font: inherit; font-size: 13px; cursor: pointer; }
   .seg button:last-child { border-right: 0; }
   .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  .seg.full { display: flex; }
+  .seg.full button { flex: 1; }
   input[type="number"], input[type="search"] {
-    width: 92px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
+    width: 96px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px;
     background: var(--bg); color: var(--text); font: inherit; font-size: 14px;
   }
   input[type="search"] { width: 100%; }
   input[type="range"] { flex: 1; min-width: 120px; accent-color: var(--accent); }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 4px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .chip { border: 1px solid var(--line); background: transparent; color: var(--muted); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 13px; cursor: pointer; }
   .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
-  .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 8px; padding: 6px 10px; font: inherit; font-size: 13px; cursor: pointer; }
+  .link { border: 0; background: none; color: var(--accent); font: inherit; font-size: 13px; cursor: pointer; padding: 0; }
+  .btn { border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 8px; padding: 5px 10px; font: inherit; font-size: 13px; cursor: pointer; }
   .btn:hover { border-color: var(--accent); }
-  .summary { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
-  .stat { flex: 1 1 160px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; box-shadow: var(--shadow); }
-  .stat .k { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-  .stat .v { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
-  .stat .s { color: var(--muted); font-size: 13px; }
-  .table-wrap { overflow-x: auto; }
-  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; cursor: pointer; user-select: none; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 14px; }
+  details[open] summary { margin-bottom: 12px; }
+  details .stack > * + * { margin-top: 14px; }
+  .summary { font-size: 15px; margin-bottom: 12px; }
+  .summary strong { font-size: 20px; font-variant-numeric: tabular-nums; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; margin-top: 10px; }
+  th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); text-align: right; vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
   th:first-child, td:first-child { text-align: left; }
   tbody tr:hover { background: var(--accent-soft); }
   tr.best td { background: var(--good-soft); }
   .model { font-weight: 600; }
-  .aka { color: var(--muted); font-size: 12px; margin-left: 6px; }
-  .prov { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 6px; }
-  .barcell { width: 26%; min-width: 90px; }
+  .sub { color: var(--muted); font-size: 12px; }
+  .tag { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 4px; white-space: nowrap; }
+  .cost { font-weight: 600; white-space: nowrap; }
+  .barcell { width: 22%; min-width: 80px; vertical-align: middle; }
   .bar { height: 8px; border-radius: 4px; background: var(--bar); }
   tr.best .bar { background: var(--good); }
   .empty { color: var(--muted); padding: 24px; text-align: center; }
+  .more { text-align: center; padding-top: 12px; }
   footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
   footer a { color: var(--accent); }
   .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   @media (max-width: 520px) {
-    .barcell, .aka, .prov, .col-in { display: none; }
+    .barcell, .col-out { display: none; }
     th, td { padding: 8px 6px; }
-    td:first-child { white-space: normal; }
   }
 </style>
 </head>
@@ -111,37 +109,34 @@
 <div class="wrap">
   <header>
     <h1>llm-tally</h1>
-    <p>How much will this prompt cost? Compare <span id="model-count"></span> models from six providers.</p>
+    <p>What will this prompt cost? <span id="model-count"></span> models from <span id="provider-count"></span> providers.</p>
   </header>
 
   <div class="layout">
     <div class="card stack">
       <div>
         <label class="title" for="prompt">Your prompt</label>
-        <textarea id="prompt" spellcheck="false" placeholder="Paste a prompt, a document, or chat messages here…">Summarize the following customer feedback in three bullet points and suggest one improvement.</textarea>
-        <div class="row" style="justify-content: space-between; margin-top: 6px;">
+        <textarea id="prompt" spellcheck="false" placeholder="Paste a prompt or document, or drop a text file here">Summarize the following customer feedback in three bullet points and suggest one improvement.</textarea>
+        <div class="row between" style="margin-top: 6px;">
           <span class="hint" id="token-hint"></span>
-          <button class="btn" id="clear" type="button">Clear</button>
+          <span class="row">
+            <label class="btn" for="file">Open file</label>
+            <input class="sr" type="file" id="file" accept=".txt,.md,.json,.csv,.js,.ts,.py,.html,.xml,.yaml,.yml,text/*">
+            <button class="btn" id="clear" type="button">Clear</button>
+          </span>
         </div>
-      </div>
-
-      <div class="drop" id="drop">
-        <span class="hint">…or drop a text file here</span>
-        <label class="btn" for="file">Choose file</label>
-        <input class="sr" type="file" id="file" accept=".txt,.md,.json,.csv,.js,.ts,.py,.html,.xml,.yaml,.yml,text/*">
       </div>
 
       <div>
-        <span class="title">Expected reply length <span class="hint">(tokens)</span></span>
-        <div class="row">
-          <div class="seg" id="reply-presets">
-            <button type="button" data-v="0">None</button>
-            <button type="button" data-v="200">Short</button>
-            <button type="button" data-v="1000">Medium</button>
-            <button type="button" data-v="4000">Long</button>
-          </div>
-          <input type="number" id="reply" min="0" step="50" value="200" aria-label="Reply length in tokens">
+        <span class="title">Reasoning effort</span>
+        <div class="seg full" id="effort">
+          <button type="button" data-v="none">None</button>
+          <button type="button" data-v="low">Low</button>
+          <button type="button" data-v="medium">Medium</button>
+          <button type="button" data-v="high">High</button>
+          <button type="button" data-v="max">Max</button>
         </div>
+        <div class="hint" id="effort-hint" style="margin-top: 6px;"></div>
       </div>
 
       <div>
@@ -158,65 +153,51 @@
       </div>
 
       <div>
-        <label class="title" for="cache">Prompt read from cache: <span id="cache-v">0%</span></label>
-        <div class="row">
-          <input type="range" id="cache" min="0" max="100" step="5" value="0">
+        <div class="row between">
+          <span class="title">Providers</span>
+          <button class="link" type="button" id="all-providers">Select all</button>
         </div>
-        <span class="hint">For repeated prompts (same system prompt or document) that hit the provider's prompt cache.</span>
-      </div>
-
-      <div>
-        <span class="title">Providers</span>
         <div class="chips" id="providers"></div>
       </div>
 
-      <div>
-        <span class="title">Models</span>
-        <div class="row">
-          <div class="seg" id="scope">
-            <button type="button" data-v="popular">Popular</button>
-            <button type="button" data-v="all">All</button>
+      <details id="more">
+        <summary>More options</summary>
+        <div class="stack">
+          <div>
+            <label class="title" for="answer">Answer length <span class="hint">(tokens, not counting thinking)</span></label>
+            <input type="number" id="answer" min="0" step="50" value="500">
           </div>
-          <input type="search" id="search" placeholder="Search, e.g. sonnet, grok, mini" aria-label="Search models" style="flex: 1; width: auto;">
+          <div>
+            <label class="title" for="cache">Prompt read from cache: <span id="cache-v">0%</span></label>
+            <input type="range" id="cache" min="0" max="100" step="5" value="0" style="width: 100%;">
+            <div class="hint">For repeated prompts (same system prompt or document) that hit the provider's prompt cache.</div>
+          </div>
         </div>
-      </div>
+      </details>
     </div>
 
-    <div>
-      <div class="summary">
-        <div class="stat"><div class="k">Cheapest</div><div class="v" id="s-cheap">–</div><div class="s" id="s-cheap-m"></div></div>
-        <div class="stat"><div class="k">Most expensive</div><div class="v" id="s-dear">–</div><div class="s" id="s-dear-m"></div></div>
-        <div class="stat"><div class="k">Prompt size</div><div class="v" id="s-tokens">–</div><div class="s" id="s-chars"></div></div>
-      </div>
-      <div class="card">
-        <div class="row" style="justify-content: space-between; margin-bottom: 8px;">
-          <span class="hint" id="result-note"></span>
-          <div class="row">
-            <button class="btn" id="copy" type="button">Copy as CSV</button>
-          </div>
-        </div>
-        <div class="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th data-sort="model">Model</th>
-                <th data-sort="inputTokens" class="col-in">Input tokens</th>
-                <th data-sort="cost">Per request</th>
-                <th data-sort="total" id="th-total">Total</th>
-                <th class="barcell"><span class="sr">Relative cost</span></th>
-              </tr>
-            </thead>
-            <tbody id="rows"></tbody>
-          </table>
-        </div>
-      </div>
+    <div class="card">
+      <div class="summary" id="summary"></div>
+      <input type="search" id="search" placeholder="Search all models, e.g. sonnet, grok, qwen, mini" aria-label="Search models">
+      <table>
+        <thead>
+          <tr>
+            <th>Model</th>
+            <th class="col-out">Output tokens</th>
+            <th id="th-cost">Cost</th>
+            <th class="barcell"><span class="sr">Relative cost</span></th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="more"><button class="link" type="button" id="show-all"></button></div>
     </div>
   </div>
 
   <footer>
-    Prices in USD from each provider's pricing page, as of <span id="asof"></span>. Token counts are estimates (usually within 15%).
+    Prices in USD from each provider's pricing page, as of <span id="asof"></span>. Token counts and thinking tokens are estimates.
     llm-tally __VERSION__ · <a href="https://github.com/acus9345/llm-tally">GitHub</a> · <a href="https://www.npmjs.com/package/llm-tally">npm</a> ·
-    also on the command line: <code>npx llm-tally "your prompt"</code>
+    command line: <code>npx llm-tally "your prompt"</code>
   </footer>
 </div>
 
@@ -225,7 +206,11 @@
 (() => {
   const T = window.LlmTally;
   const $ = (id) => document.getElementById(id);
-  const PROVIDER_NAMES = { openai: "OpenAI", anthropic: "Anthropic", google: "Google", xai: "xAI", deepseek: "DeepSeek", mistral: "Mistral" };
+  const NAMES = {
+    openai: "OpenAI", anthropic: "Anthropic", google: "Google", xai: "xAI", deepseek: "DeepSeek", mistral: "Mistral",
+    alibaba: "Qwen", moonshot: "Kimi", zai: "GLM", minimax: "MiniMax", perplexity: "Perplexity", cohere: "Cohere",
+    amazon: "Amazon Nova", ai21: "AI21",
+  };
   const models = T.listModels();
   const providers = [...new Set(models.map((m) => m.provider))];
   const popular = new Set(T.DEFAULT_COMPARE_MODELS);
@@ -234,22 +219,23 @@
     get(key, fallback) { try { const v = localStorage.getItem("llm-tally:" + key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; } },
     set(key, value) { try { localStorage.setItem("llm-tally:" + key, JSON.stringify(value)); } catch {} },
   };
-
   const state = {
-    reply: store.get("reply", 200),
+    effort: store.get("effort", "medium"),
     requests: store.get("requests", 1),
+    answer: store.get("answer", 500),
     cache: store.get("cache", 0),
-    scope: store.get("scope", "popular"),
-    providers: new Set(store.get("providers", providers)),
-    sort: { key: "cost", dir: 1 },
+    providers: new Set(store.get("providers2", providers)),
+    showAll: store.get("showAll", false),
   };
+  if (!(state.effort in T.EFFORT_REASONING_TOKENS)) state.effort = "medium";
 
   $("model-count").textContent = models.length;
+  $("provider-count").textContent = providers.length;
   $("asof").textContent = T.PRICES_AS_OF;
   const savedPrompt = store.get("prompt", null);
   if (typeof savedPrompt === "string") $("prompt").value = savedPrompt;
-  $("reply").value = state.reply;
   $("requests").value = state.requests;
+  $("answer").value = state.answer;
   $("cache").value = state.cache;
 
   for (const p of providers) {
@@ -257,133 +243,150 @@
     b.type = "button";
     b.className = "chip";
     b.dataset.v = p;
-    b.textContent = PROVIDER_NAMES[p] || p;
+    b.textContent = NAMES[p] || p;
     $("providers").append(b);
   }
 
   const fmtInt = (n) => n.toLocaleString("en-US");
   const fmtCount = (n) => (n >= 1e6 && n % 1e6 === 0 ? n / 1e6 + "M" : n >= 1e3 && n % 1e3 === 0 ? n / 1e3 + "k" : fmtInt(n));
+  const fmtPrice = (n) => "$" + (n >= 1 ? +n.toFixed(2) : +n.toPrecision(3));
 
-  function syncButtons() {
-    for (const b of $("reply-presets").children) b.setAttribute("aria-pressed", String(Number(b.dataset.v) === state.reply));
+  function syncControls() {
+    for (const b of $("effort").children) b.setAttribute("aria-pressed", String(b.dataset.v === state.effort));
     for (const b of $("req-presets").children) b.setAttribute("aria-pressed", String(Number(b.dataset.v) === state.requests));
-    for (const b of $("scope").children) b.setAttribute("aria-pressed", String(b.dataset.v === state.scope));
     for (const b of $("providers").children) b.setAttribute("aria-pressed", String(state.providers.has(b.dataset.v)));
+    $("all-providers").textContent = state.providers.size === providers.length ? "Clear" : "Select all";
     $("cache-v").textContent = state.cache + "%";
+    const thinking = T.EFFORT_REASONING_TOKENS[state.effort];
+    $("effort-hint").textContent = thinking
+      ? "≈ " + fmtInt(thinking) + " thinking tokens + a " + fmtInt(state.answer) + "-token answer per request. Models that don't reason only pay for the answer."
+      : "No thinking: only the " + fmtInt(state.answer) + "-token answer is billed as output.";
   }
 
-  let last = [];
   function compute() {
     const text = $("prompt").value;
     const query = $("search").value.trim().toLowerCase();
+    const matches = (m) => [m.id, NAMES[m.provider] || "", ...(m.aliases || [])].some((n) => n.toLowerCase().includes(query));
     const chosen = models.filter((m) => {
+      if (query) return matches(m);
       if (!state.providers.has(m.provider)) return false;
-      if (query) return [m.id, ...(m.aliases || [])].some((n) => n.toLowerCase().includes(query));
-      return state.scope === "all" || popular.has(m.id);
+      return state.showAll || popular.has(m.id);
     });
 
-    // Count once per tokenizer family, then price each model from those counts.
-    const tokensByFamily = new Map();
+    // Count once per tokenizer family, then price each model from that count.
+    const counts = new Map();
     const tokensFor = (m) => {
       const fam = m.tokenizer || "openai-o200k";
-      if (!tokensByFamily.has(fam)) tokensByFamily.set(fam, T.countTokens(text, m.id));
-      return tokensByFamily.get(fam);
+      if (!counts.has(fam)) counts.set(fam, T.countTokens(text, m.id));
+      return counts.get(fam);
     };
-
-    const rows = chosen.map((m) => {
-      const inputTokens = tokensFor(m);
-      const c = T.costFromUsage({
-        model: m.id,
-        inputTokens,
-        outputTokens: state.reply,
-        cachedInputTokens: Math.round((inputTokens * state.cache) / 100),
-      });
-      return { m, inputTokens, cost: c.totalCost, total: c.totalCost * state.requests, warnings: c.warnings, longContext: c.longContext };
-    });
-
-    const { key, dir } = state.sort;
-    rows.sort((a, b) => {
-      const va = key === "model" ? a.m.id : a[key];
-      const vb = key === "model" ? b.m.id : b[key];
-      return (va < vb ? -1 : va > vb ? 1 : 0) * dir || a.cost - b.cost;
-    });
-    last = rows;
-    render(rows, text);
+    const thinking = T.EFFORT_REASONING_TOKENS[state.effort];
+    const rows = chosen
+      .map((m) => {
+        const inputTokens = tokensFor(m);
+        const reasoningTokens = m.reasoning === false ? 0 : thinking;
+        const c = T.costFromUsage({
+          model: m.id,
+          inputTokens,
+          outputTokens: state.answer + reasoningTokens,
+          cachedInputTokens: Math.round((inputTokens * state.cache) / 100),
+        });
+        return { m, c, reasoningTokens, total: c.totalCost * state.requests };
+      })
+      .sort((a, b) => a.c.totalCost - b.c.totalCost || a.m.id.localeCompare(b.m.id));
+    render(rows, text, query);
   }
 
-  function render(rows, text) {
+  function render(rows, text, query) {
     const many = state.requests > 1;
-    $("th-total").textContent = many ? "× " + fmtCount(state.requests) : "Total";
-    $("th-total").style.display = many ? "" : "none";
+    $("token-hint").textContent = text ? "≈ " + fmtInt(T.countTokens(text)) + " tokens" : "";
+    $("th-cost").textContent = many ? "Cost × " + fmtCount(state.requests) : "Cost";
 
-    const base = T.countTokens(text);
-    $("token-hint").textContent = text ? "≈ " + fmtInt(base) + " tokens (GPT count; Claude ≈ " + fmtInt(T.countTokens(text, "sonnet")) + ")" : "";
-    $("s-tokens").textContent = fmtInt(base);
-    $("s-chars").textContent = fmtInt(text.length) + " characters";
+    const enabled = models.filter((m) => state.providers.has(m.provider)).length;
+    const more = $("show-all");
+    more.style.display = query ? "none" : "";
+    more.textContent = state.showAll ? "Show popular models only" : "Show all " + enabled + " models";
 
     const tbody = $("rows");
     tbody.textContent = "";
     if (rows.length === 0) {
       const tr = document.createElement("tr");
-      tr.innerHTML = '<td class="empty" colspan="5">No models match. Turn on a provider or clear the search.</td>';
+      const td = document.createElement("td");
+      td.className = "empty";
+      td.colSpan = 4;
+      td.textContent = query ? "No model matches “" + query + "”." : "Pick at least one provider.";
+      tr.append(td);
       tbody.append(tr);
-      $("s-cheap").textContent = $("s-dear").textContent = "–";
-      $("s-cheap-m").textContent = $("s-dear-m").textContent = "";
-      $("result-note").textContent = "";
+      $("summary").textContent = "";
       return;
     }
 
-    const byCost = [...rows].sort((a, b) => a.cost - b.cost);
-    const cheap = byCost[0];
-    const dear = byCost[byCost.length - 1];
-    const amount = (r) => T.formatUsd(many ? r.total : r.cost);
-    $("s-cheap").textContent = amount(cheap);
-    $("s-cheap-m").textContent = cheap.m.id;
-    $("s-dear").textContent = amount(dear);
-    const ratio = cheap.cost > 0 ? dear.cost / cheap.cost : 0;
-    $("s-dear-m").textContent = dear.m.id + (ratio >= 1.5 ? " · " + Math.round(ratio) + "× the cheapest" : "");
-    $("result-note").textContent = rows.length + " models · " + fmtInt(state.reply) + "-token reply" + (many ? " · " + fmtCount(state.requests) + " requests" : "");
+    const cheap = rows[0];
+    const dear = rows[rows.length - 1];
+    const amount = (r) => (r.c.totalCost === 0 ? "Free" : T.formatUsd(many ? r.total : r.c.totalCost));
+    const ratio = cheap.c.totalCost > 0 ? dear.c.totalCost / cheap.c.totalCost : 0;
+    const summary = $("summary");
+    summary.textContent = "Cheapest: ";
+    const strong = document.createElement("strong");
+    strong.textContent = amount(cheap);
+    summary.append(strong, " on " + cheap.m.id + (many ? " for " + fmtCount(state.requests) + " requests" : " per request"));
+    if (rows.length > 1 && ratio >= 1.5) summary.append(" · " + Math.round(ratio) + "× cheaper than " + dear.m.id);
 
-    const max = dear.cost || 1;
+    const max = dear.c.totalCost || 1;
     for (const r of rows) {
+      const { m, c } = r;
       const tr = document.createElement("tr");
       if (r === cheap) tr.className = "best";
-      const m = r.m;
-      tr.title = m.id + ": $" + m.input + " in / $" + (m.cachedInput ?? m.input) + " cached / $" + m.output + " out per 1M tokens" + (r.warnings.length ? "\n" + r.warnings.join("\n") : "");
+      if (c.warnings.length) tr.title = c.warnings.join("\n");
 
       const name = document.createElement("td");
-      const strong = document.createElement("span");
-      strong.className = "model";
-      strong.textContent = m.id;
+      const title = document.createElement("div");
+      const strongName = document.createElement("span");
+      strongName.className = "model";
+      strongName.textContent = m.id;
       const prov = document.createElement("span");
-      prov.className = "prov";
-      prov.textContent = PROVIDER_NAMES[m.provider] || m.provider;
-      name.append(strong, prov);
-      const short = (m.aliases || []).find((a) => !/\d/.test(a) && a.length < m.id.length);
-      if (short) {
-        const aka = document.createElement("span");
-        aka.className = "aka";
-        aka.textContent = "“" + short + "”";
-        aka.title = "Short name you can use instead of " + m.id;
-        name.append(aka);
+      prov.className = "tag";
+      prov.textContent = NAMES[m.provider] || m.provider;
+      title.append(strongName, prov);
+      if (state.effort !== "none" && m.reasoning === false) {
+        const tag = document.createElement("span");
+        tag.className = "tag";
+        tag.textContent = "no thinking";
+        tag.title = "This model answers directly, so reasoning effort adds nothing.";
+        title.append(tag);
       }
+      const sub = document.createElement("div");
+      sub.className = "sub";
+      const short = (m.aliases || []).find((a) => !/\d/.test(a) && a.length < m.id.length);
+      sub.textContent = fmtPrice(m.input) + " in · " + fmtPrice(m.output) + " out per 1M" +
+        (m.requestFee ? " · + " + T.formatUsd(m.requestFee) + "/request" : "") +
+        (short ? " · “" + short + "”" : "");
+      name.append(title, sub);
 
-      const cells = [fmtInt(r.inputTokens) + (r.longContext ? " ⚠" : ""), T.formatUsd(r.cost), T.formatUsd(r.total)].map((t) => {
-        const td = document.createElement("td");
-        td.textContent = t;
-        return td;
-      });
-      cells[0].className = "col-in";
-      cells[2].style.display = many ? "" : "none";
+      const out = document.createElement("td");
+      out.className = "col-out";
+      out.textContent = fmtInt(c.outputTokens);
+
+      const cost = document.createElement("td");
+      const main = document.createElement("div");
+      main.className = "cost";
+      main.textContent = amount(r) + (c.longContext ? " ⚠" : "");
+      cost.append(main);
+      if (many) {
+        const per = document.createElement("div");
+        per.className = "sub";
+        per.textContent = T.formatUsd(c.totalCost) + " each";
+        cost.append(per);
+      }
 
       const barTd = document.createElement("td");
       barTd.className = "barcell";
       const bar = document.createElement("div");
       bar.className = "bar";
-      bar.style.width = Math.max(2, (r.cost / max) * 100) + "%";
+      bar.style.width = Math.max(2, (c.totalCost / max) * 100) + "%";
       barTd.append(bar);
 
-      tr.append(name, ...cells, barTd);
+      tr.append(name, out, cost, barTd);
       tbody.append(tr);
     }
   }
@@ -391,13 +394,15 @@
   let timer;
   const schedule = () => { clearTimeout(timer); timer = setTimeout(compute, 120); };
   const save = () => {
-    store.set("reply", state.reply);
+    store.set("effort", state.effort);
     store.set("requests", state.requests);
+    store.set("answer", state.answer);
     store.set("cache", state.cache);
-    store.set("scope", state.scope);
-    store.set("providers", [...state.providers]);
+    store.set("providers2", [...state.providers]);
+    store.set("showAll", state.showAll);
   };
-  const update = () => { syncButtons(); save(); schedule(); };
+  const update = () => { syncControls(); save(); schedule(); };
+  const pick = (el, fn) => el.addEventListener("click", (e) => { const v = e.target.dataset && e.target.dataset.v; if (v !== undefined) fn(v); });
 
   $("prompt").addEventListener("input", () => {
     const v = $("prompt").value;
@@ -406,42 +411,17 @@
   });
   $("clear").addEventListener("click", () => { $("prompt").value = ""; store.set("prompt", ""); $("prompt").focus(); schedule(); });
   $("search").addEventListener("input", schedule);
-
-  $("reply-presets").addEventListener("click", (e) => {
-    const v = e.target.dataset && e.target.dataset.v;
-    if (v === undefined) return;
-    state.reply = Number(v); $("reply").value = v; update();
-  });
-  $("reply").addEventListener("input", () => { state.reply = Math.max(0, Math.round(Number($("reply").value) || 0)); update(); });
-
-  $("req-presets").addEventListener("click", (e) => {
-    const v = e.target.dataset && e.target.dataset.v;
-    if (v === undefined) return;
-    state.requests = Number(v); $("requests").value = v; update();
-  });
+  pick($("effort"), (v) => { state.effort = v; update(); });
+  pick($("req-presets"), (v) => { state.requests = Number(v); $("requests").value = v; update(); });
   $("requests").addEventListener("input", () => { state.requests = Math.max(1, Math.round(Number($("requests").value) || 1)); update(); });
-
-  $("cache").addEventListener("input", () => { state.cache = Number($("cache").value); update(); });
-
-  $("scope").addEventListener("click", (e) => {
-    const v = e.target.dataset && e.target.dataset.v;
-    if (!v) return;
-    state.scope = v; update();
-  });
-  $("providers").addEventListener("click", (e) => {
-    const v = e.target.dataset && e.target.dataset.v;
-    if (!v) return;
-    if (state.providers.has(v)) state.providers.delete(v); else state.providers.add(v);
+  pick($("providers"), (v) => { if (state.providers.has(v)) state.providers.delete(v); else state.providers.add(v); update(); });
+  $("all-providers").addEventListener("click", () => {
+    state.providers = state.providers.size === providers.length ? new Set() : new Set(providers);
     update();
   });
-
-  for (const th of document.querySelectorAll("th[data-sort]")) {
-    th.addEventListener("click", () => {
-      const key = th.dataset.sort;
-      state.sort = { key, dir: state.sort.key === key ? -state.sort.dir : 1 };
-      compute();
-    });
-  }
+  $("answer").addEventListener("input", () => { state.answer = Math.max(0, Math.round(Number($("answer").value) || 0)); update(); });
+  $("cache").addEventListener("input", () => { state.cache = Number($("cache").value); update(); });
+  $("show-all").addEventListener("click", () => { state.showAll = !state.showAll; update(); });
 
   async function loadFile(file) {
     if (!file) return;
@@ -451,20 +431,14 @@
     schedule();
   }
   $("file").addEventListener("change", (e) => loadFile(e.target.files[0]));
-  const drop = $("drop");
-  for (const ev of ["dragenter", "dragover"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); });
-  for (const ev of ["dragleave", "drop"]) drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); });
-  drop.addEventListener("drop", (e) => loadFile(e.dataTransfer.files[0]));
-
-  $("copy").addEventListener("click", async () => {
-    const lines = [["model", "provider", "input_tokens", "output_tokens", "cost_per_request_usd", "requests", "total_usd"].join(",")];
-    for (const r of last) lines.push([r.m.id, r.m.provider, r.inputTokens, state.reply, r.cost, state.requests, r.total].join(","));
-    try { await navigator.clipboard.writeText(lines.join("\n")); $("copy").textContent = "Copied!"; }
-    catch { $("copy").textContent = "Copy failed"; }
-    setTimeout(() => { $("copy").textContent = "Copy as CSV"; }, 1500);
+  const area = $("prompt");
+  for (const ev of ["dragenter", "dragover"]) area.addEventListener(ev, (e) => { e.preventDefault(); area.classList.add("over"); });
+  for (const ev of ["dragleave", "drop"]) area.addEventListener(ev, () => area.classList.remove("over"));
+  area.addEventListener("drop", (e) => {
+    if (e.dataTransfer.files.length) { e.preventDefault(); loadFile(e.dataTransfer.files[0]); }
   });
 
-  syncButtons();
+  syncControls();
   compute();
 })();
 </script>

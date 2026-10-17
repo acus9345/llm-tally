@@ -89,7 +89,9 @@ describe("cli", () => {
     assert.doesNotMatch(one.out, /gpt-5\.5/);
     const bad = await cli(["--list", "nobody"]);
     assert.equal(bad.code, 2);
-    assert.match(bad.err, /Try a provider \(openai, anthropic, google, xai, deepseek, mistral\)/);
+    assert.match(bad.err, /Try a provider \(openai, anthropic, google, xai, deepseek, mistral, alibaba, .*ai21\)/);
+    const qwen = await cli(["--list", "qwen"]);
+    assert.match(qwen.out, /qwen3\.8-max/);
     const search = await cli(["--list", "sonnet"]);
     assert.match(search.out, /claude-sonnet-5-5\s.*sonnet, claude-sonnet/);
     assert.doesNotMatch(search.out, /opus/);
@@ -100,6 +102,16 @@ describe("cli", () => {
     assert.equal(r.code, 0, r.err);
     const models = (JSON.parse(r.out) as { model: string }[]).map((x) => x.model).sort();
     assert.deepEqual(models, ["claude-sonnet-5-5", "deepseek-flash", "grok-4.7", "mistral-large"]);
+  });
+
+  test("model lists may be separated by spaces (PowerShell turns a,b into 'a b')", async () => {
+    const r = await cli(["hi", "-m", "kimi glm qwen3.8-max", "--json"]);
+    assert.equal(r.code, 0, r.err);
+    assert.deepEqual((JSON.parse(r.out) as { model: string }[]).map((x) => x.model).sort(), [
+      "glm-5.3",
+      "kimi-k3",
+      "qwen3.8-max",
+    ]);
   });
 
   test("--provider and --all compare whole providers", async () => {
@@ -123,6 +135,19 @@ describe("cli", () => {
     assert.ok(Math.abs(json[0].totalForRequests - json[0].totalCost * 3) < 1e-12);
   });
 
+  test("--effort adds thinking tokens to reasoning models only", async () => {
+    const r = await cli(["hi", "-m", "sonnet,gpt-4.1", "-o", "500", "-e", "medium", "--json"]);
+    assert.equal(r.code, 0, r.err);
+    const data = JSON.parse(r.out) as { model: string; outputTokens: number; reasoningTokens: number }[];
+    const sonnet = data.find((d) => d.model === "claude-sonnet-5-5");
+    const gpt41 = data.find((d) => d.model === "gpt-4.1");
+    assert.deepEqual([sonnet?.outputTokens, sonnet?.reasoningTokens], [4500, 4000]);
+    assert.deepEqual([gpt41?.outputTokens, gpt41?.reasoningTokens], [500, 0]);
+    const table = await cli(["hi", "-m", "sonnet,gpt-4.1", "-o", "500", "-e", "medium"]);
+    assert.match(table.out, /4,500/);
+    assert.match(table.out, /thinking tokens on models that reason/);
+  });
+
   test("hints at -o when no reply length is given", async () => {
     assert.match((await cli(["Hello"])).out, /Tip: add -o/);
     assert.doesNotMatch((await cli(["Hello", "-o", "10"])).out, /Tip: add -o/);
@@ -134,6 +159,7 @@ describe("cli", () => {
       [["hi", "--bogus"], /Unknown option '--bogus'/, 2],
       [["hi", "-o", "lots"], /--output-tokens must be a number/, 2],
       [["hi", "-n", "0"], /--requests must be at least 1/, 2],
+      [["hi", "-e", "extreme"], /--effort must be one of none, low, medium, high, max/, 2],
       [["hi", "-p", "nobody"], /Unknown provider "nobody"/, 1],
       [["hi", "-m", "gpt-55"], /Unknown model "gpt-55"/, 1],
       [["-f", join(dir, "missing.txt")], /File not found/, 2],
