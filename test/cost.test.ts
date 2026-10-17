@@ -107,7 +107,10 @@ describe("compareCosts", () => {
     const results = compareCosts("Hello there", { outputTokens: 100 });
     assert.equal(results.length, DEFAULT_COMPARE_MODELS.length);
     for (let i = 1; i < results.length; i++) assert.ok(results[i - 1].totalCost <= results[i].totalCost);
-    assert.deepEqual(new Set(results.map((r) => r.provider)), new Set(["openai", "anthropic", "google"]));
+    assert.deepEqual(
+      new Set(results.map((r) => r.provider)),
+      new Set(["openai", "anthropic", "google", "xai", "deepseek", "mistral"]),
+    );
   });
 
   test("accepts an explicit model list", () => {
@@ -176,12 +179,95 @@ describe("model catalog", () => {
   });
 });
 
+describe("ease of use", () => {
+  test("estimateCost, countTokens and compareCosts accept plain model names", () => {
+    assert.equal(estimateCost("Hello", "gpt-5.5").model, "gpt-5.5");
+    assert.equal(countTokens("Hello", "sonnet"), countTokens("Hello", { model: "claude-sonnet-5-5" }));
+    const results = compareCosts("Hello", ["sonnet", "claude-sonnet-5-5", "grok"]);
+    assert.deepEqual(results.map((r) => r.model).sort(), ["claude-sonnet-5-5", "grok-4.7"]);
+  });
+
+  test("short names resolve to the current model in each line", () => {
+    const expected: Record<string, string> = {
+      opus: "claude-opus-5-5",
+      sonnet: "claude-sonnet-5-5",
+      haiku: "claude-haiku-5-5",
+      fable: "claude-fable-5-1",
+      grok: "grok-4.7",
+      "gemini-flash": "gemini-3.8-flash",
+      "gemini-pro": "gemini-3.1-pro-preview",
+      "deepseek-v4-flash": "deepseek-flash",
+      "mistral-small-latest": "mistral-small",
+      "mistral-small-2603": "mistral-small",
+      "codestral-latest": "codestral",
+      SONNET: "claude-sonnet-5-5",
+    };
+    for (const [name, id] of Object.entries(expected)) assert.equal(getModel(name).id, id, name);
+  });
+
+  test("OpenRouter / LiteLLM style provider prefixes", () => {
+    assert.equal(getModel("x-ai/grok-4.7").id, "grok-4.7");
+    assert.equal(getModel("deepseek/deepseek-v4-pro").id, "deepseek-v4-pro");
+    assert.equal(getModel("mistralai/mistral-large-latest").id, "mistral-large");
+    assert.equal(getModel("anthropic/sonnet").id, "claude-sonnet-5-5");
+  });
+
+  test("compareCosts can compare whole providers", () => {
+    const results = compareCosts("Hello", { providers: ["deepseek"] });
+    assert.deepEqual(results.map((r) => r.model).sort(), ["deepseek-flash", "deepseek-v4-pro"]);
+    assert.throws(() => compareCosts("Hello", { providers: ["nobody"] }), /Unknown provider "nobody"/);
+  });
+
+  test("registerModel accepts aliases", () => {
+    registerModel({ id: "acme-chat-1", provider: "acme", input: 1, output: 2, aliases: ["acme"] });
+    assert.equal(getModel("acme").id, "acme-chat-1");
+    assert.equal(listModels("acme").length, 1);
+  });
+});
+
+describe("new providers", () => {
+  test("xAI doubles the price for prompts of 200k tokens or more", () => {
+    const under = costFromUsage({ model: "grok-4.7", inputTokens: 199_999 });
+    const at = costFromUsage({ model: "grok-4.7", inputTokens: 200_000 });
+    assert.equal(under.longContext, false);
+    assert.equal(at.longContext, true);
+    close(at.totalCost, (200_000 * 4) / 1e6);
+  });
+
+  test("DeepSeek and Mistral cache prices apply", () => {
+    const c = costFromUsage({ model: "deepseek-flash", inputTokens: 1_000_000, cachedInputTokens: 1_000_000 });
+    close(c.totalCost, 0.006);
+    close(costFromUsage({ model: "mistral-small", inputTokens: 1e6, outputTokens: 1e6 }).totalCost, 0.75);
+  });
+
+  test("every provider is represented in the default comparison", () => {
+    const providers = new Set(DEFAULT_COMPARE_MODELS.map((id) => getModel(id).provider));
+    assert.deepEqual(providers, new Set(["openai", "anthropic", "google", "xai", "deepseek", "mistral"]));
+  });
+});
+
+describe("runtime portability", () => {
+  test("the library (everything but the CLI) imports nothing Node-specific", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const dist = new URL("../dist/", import.meta.url);
+    for (const file of readdirSync(dist).filter((f) => f.endsWith(".js") && f !== "cli.js" && f !== "run.js")) {
+      const code = readFileSync(new URL(file, dist), "utf8");
+      assert.doesNotMatch(code, /from "node:|require\(|process\.|Buffer/, file);
+    }
+  });
+});
+
 describe("formatUsd", () => {
-  test("keeps cents for normal amounts and significant digits for tiny ones", () => {
+  test("keeps cents from $1 up and three significant digits below", () => {
     assert.equal(formatUsd(0), "$0.00");
     assert.equal(formatUsd(12.5), "$12.50");
-    assert.equal(formatUsd(0.01), "$0.01");
-    assert.equal(formatUsd(0.0042), "$0.0042");
+    assert.equal(formatUsd(0.01), "$0.0100");
+    assert.equal(formatUsd(0.010048), "$0.0100");
+    assert.equal(formatUsd(0.020096), "$0.0201");
+    assert.equal(formatUsd(0.5), "$0.500");
+    assert.equal(formatUsd(0.9996), "$1.00");
+    assert.equal(formatUsd(1.5e-7), "$0.000000150");
+    assert.equal(formatUsd(0.0042), "$0.00420");
     assert.equal(formatUsd(0.000123), "$0.000123");
     assert.equal(formatUsd(1234.567), "$1234.57");
     assert.equal(formatUsd(Number.NaN), "$?");

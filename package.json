@@ -1,7 +1,7 @@
 {
   "name": "llm-tally",
   "version": "0.1.0",
-  "description": "Estimate tokens and API cost for OpenAI, Anthropic Claude and Google Gemini models. Zero dependencies, typed, with a CLI.",
+  "description": "Estimate tokens and API cost for OpenAI, Anthropic, Google, xAI, DeepSeek and Mistral models. Zero dependencies, typed, with a CLI.",
   "keywords": [
     "llm",
     "tokens",
@@ -12,6 +12,10 @@
     "anthropic",
     "claude",
     "gemini",
+    "grok",
+    "xai",
+    "deepseek",
+    "mistral",
     "cli"
   ],
   "homepage": "https://github.com/acus9345/llm-tally#readme",

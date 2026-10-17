@@ -15,7 +15,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
         node: [22, 24, 26]
     steps:
       - uses: actions/checkout@v7
@@ -26,3 +26,32 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run lint
+
+  runtimes:
+    name: ${{ matrix.runtime }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        runtime: [bun, deno]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - if: matrix.runtime == 'bun'
+        uses: oven-sh/setup-bun@v2
+      - if: matrix.runtime == 'bun'
+        run: |
+          bun test/smoke.mjs
+          bun dist/cli.js "Hello from Bun" -m sonnet,grok -o 50
+      - if: matrix.runtime == 'deno'
+        uses: denoland/setup-deno@v2
+      - if: matrix.runtime == 'deno'
+        run: |
+          deno run test/smoke.mjs
+          deno run --allow-read dist/cli.js "Hello from Deno" -m sonnet,grok -o 50

@@ -5,10 +5,13 @@
  * - OpenAI:    https://developers.openai.com/api/docs/pricing (Standard tier)
  * - Anthropic: Claude API pricing docs (first-party API rates)
  * - Google:    https://ai.google.dev/gemini-api/docs/pricing (paid tier, Standard)
+ * - xAI:       https://docs.x.ai/docs/models
+ * - DeepSeek:  https://api-docs.deepseek.com/quick_start/pricing (peak-hour rates; off-peak is half)
+ * - Mistral:   https://docs.mistral.ai/inference/pricing
  */
 
 /** Provider that serves a model. Custom models may use any string. */
-export type Provider = "openai" | "anthropic" | "google" | (string & {});
+export type Provider = "openai" | "anthropic" | "google" | "xai" | "deepseek" | "mistral" | (string & {});
 
 /**
  * Tokenizer family used to estimate token counts.
@@ -18,8 +21,17 @@ export type Provider = "openai" | "anthropic" | "google" | (string & {});
  * - `anthropic`: Claude Opus 4.7 and newer (uses noticeably more tokens).
  * - `anthropic-legacy`: Claude 4.6 and older, Haiku 4.5.
  * - `google`: Gemini.
+ * - `xai`, `deepseek`, `mistral`: those providers' own tokenizers (rougher estimates).
  */
-export type TokenizerFamily = "openai-o200k" | "openai-cl100k" | "anthropic" | "anthropic-legacy" | "google";
+export type TokenizerFamily =
+  | "openai-o200k"
+  | "openai-cl100k"
+  | "anthropic"
+  | "anthropic-legacy"
+  | "google"
+  | "xai"
+  | "deepseek"
+  | "mistral";
 
 /** Higher prices that apply when a request's input is larger than `threshold` tokens. */
 export interface LongContextPricing {
@@ -51,6 +63,8 @@ export interface ModelInfo {
   contextWindow?: number;
   /** Which tokenizer to imitate when estimating tokens. Defaults to `openai-o200k`. */
   tokenizer?: TokenizerFamily;
+  /** Other names that resolve to this model, e.g. `["sonnet"]` or a dated API ID. */
+  aliases?: readonly string[];
 }
 
 /** Date the built-in prices were last checked against the providers' pricing pages. */
@@ -112,6 +126,57 @@ const google = (
   ...extra,
 });
 
+const xai = (
+  id: string,
+  input: number,
+  cachedInput: number,
+  output: number,
+  extra: Partial<ModelInfo> = {},
+): ModelInfo => ({
+  id,
+  provider: "xai",
+  input,
+  output,
+  cachedInput,
+  // xAI bills the whole request at double rates once the prompt reaches 200k tokens.
+  longContext: { threshold: 199_999, input: input * 2, output: output * 2, cachedInput: cachedInput * 2 },
+  tokenizer: "xai",
+  ...extra,
+});
+
+const deepseek = (
+  id: string,
+  input: number,
+  cachedInput: number,
+  output: number,
+  extra: Partial<ModelInfo> = {},
+): ModelInfo => ({
+  id,
+  provider: "deepseek",
+  input,
+  output,
+  cachedInput,
+  contextWindow: 1_000_000,
+  tokenizer: "deepseek",
+  ...extra,
+});
+
+const mistral = (
+  id: string,
+  input: number,
+  cachedInput: number,
+  output: number,
+  extra: Partial<ModelInfo> = {},
+): ModelInfo => ({
+  id,
+  provider: "mistral",
+  input,
+  output,
+  cachedInput,
+  tokenizer: "mistral",
+  ...extra,
+});
+
 /** Every model llm-tally knows about out of the box. */
 export const BUILTIN_MODELS: readonly ModelInfo[] = [
   // OpenAI
@@ -151,27 +216,29 @@ export const BUILTIN_MODELS: readonly ModelInfo[] = [
   openai("gpt-3.5-turbo", 0.5, undefined, 1.5, { tokenizer: "openai-cl100k" }),
 
   // Anthropic
-  anthropic("claude-fable-5-1", 10, 0.25, 50),
+  anthropic("claude-fable-5-1", 10, 0.25, 50, { aliases: ["fable", "claude-fable"] }),
   anthropic("claude-fable-5", 10, 1, 50),
-  anthropic("claude-opus-5-5", 4, 0.2, 20),
+  anthropic("claude-opus-5-5", 4, 0.2, 20, { aliases: ["opus", "claude-opus"] }),
   anthropic("claude-opus-5", 5, 0.5, 25),
   anthropic("claude-opus-4-8", 5, 0.5, 25),
   anthropic("claude-opus-4-7", 5, 0.5, 25),
   anthropic("claude-opus-4-6", 5, 0.5, 25, { tokenizer: "anthropic-legacy" }),
-  anthropic("claude-sonnet-5-5", 2, 0.2, 10),
+  anthropic("claude-sonnet-5-5", 2, 0.2, 10, { aliases: ["sonnet", "claude-sonnet"] }),
   anthropic("claude-sonnet-5", 2, 0.2, 10),
   anthropic("claude-sonnet-4-6", 3, 0.3, 15, { tokenizer: "anthropic-legacy" }),
   anthropic("claude-haiku-5-5", 0.1, 0.01, 0.5, {
+    aliases: ["haiku", "claude-haiku"],
     longContext: { threshold: 100_000, input: 0.5, output: 2.5, cachedInput: 0.05 },
   }),
   anthropic("claude-haiku-4-5", 1, 0.1, 5, { contextWindow: 200_000, tokenizer: "anthropic-legacy" }),
 
   // Google
   google("gemini-4-argon", 2, 0.1, 10),
-  google("gemini-3.8-flash", 0.75, 0.075, 3.75),
+  google("gemini-3.8-flash", 0.75, 0.075, 3.75, { aliases: ["gemini-flash"] }),
   google("gemini-3.6-flash", 0.75, 0.075, 3.75),
-  google("gemini-3.5-flash-lite", 0.3, 0.03, 2.5),
+  google("gemini-3.5-flash-lite", 0.3, 0.03, 2.5, { aliases: ["gemini-flash-lite"] }),
   google("gemini-3.1-pro-preview", 2, 0.2, 12, {
+    aliases: ["gemini-pro", "gemini-3.1-pro"],
     longContext: { threshold: 200_000, input: 4, output: 18, cachedInput: 0.4 },
   }),
   google("gemini-3.1-flash-lite", 0.25, 0.025, 1.5),
@@ -181,6 +248,33 @@ export const BUILTIN_MODELS: readonly ModelInfo[] = [
   }),
   google("gemini-2.5-flash", 0.3, 0.03, 2.5),
   google("gemini-2.5-flash-lite", 0.1, 0.01, 0.4),
+
+  // xAI
+  xai("grok-4.7", 2, 0.5, 6, { contextWindow: 500_000, aliases: ["grok"] }),
+  xai("grok-4.6", 2, 0.5, 6, { contextWindow: 500_000 }),
+  xai("grok-4.5", 2, 0.3, 6, { contextWindow: 500_000 }),
+  xai("grok-4.3", 1.25, 0.2, 2.5, { contextWindow: 1_000_000 }),
+  xai("grok-4.20-0309-reasoning", 1.25, 0.2, 2.5, { contextWindow: 1_000_000 }),
+  xai("grok-4.20-0309-non-reasoning", 1.25, 0.2, 2.5, { contextWindow: 1_000_000 }),
+  xai("grok-4.20-multi-agent-0309", 1.25, 0.2, 2.5, { contextWindow: 1_000_000 }),
+  xai("grok-build-0.1", 1, 0.2, 2, { contextWindow: 256_000 }),
+
+  // DeepSeek (peak-hour list prices; off-peak hours cost half)
+  deepseek("deepseek-v4-pro", 1.32, 0.044, 3.96, { aliases: ["deepseek-pro"] }),
+  deepseek("deepseek-flash", 0.3, 0.006, 1.2, { aliases: ["deepseek-v4-flash"] }),
+
+  // Mistral ("-latest" IDs such as mistral-large-latest resolve to these)
+  mistral("mistral-large", 0.68, 0.07, 2.09, { contextWindow: 1_000_000, aliases: ["mistral-large-4"] }),
+  mistral("mistral-large-2512", 0.5, 0.05, 1.5, { aliases: ["mistral-large-3"] }),
+  mistral("mistral-medium", 1.5, 0.15, 7.5, { aliases: ["mistral-medium-2604", "mistral-medium-3.5"] }),
+  mistral("mistral-small", 0.15, 0.015, 0.6, {
+    contextWindow: 256_000,
+    aliases: ["mistral-small-2603", "mistral-small-4"],
+  }),
+  mistral("ministral-14b", 0.2, 0.02, 0.2, { aliases: ["ministral-14b-2512", "ministral-3-14b"] }),
+  mistral("ministral-8b", 0.15, 0.015, 0.15, { aliases: ["ministral-8b-2512", "ministral-3-8b"] }),
+  mistral("ministral-3b", 0.1, 0.01, 0.1, { aliases: ["ministral-3b-2512", "ministral-3-3b"] }),
+  mistral("codestral", 0.3, 0.03, 0.9, { aliases: ["codestral-2508"] }),
 ];
 
 /** Models compared by default when you don't name any (CLI and `compareCosts`). */
@@ -192,4 +286,9 @@ export const DEFAULT_COMPARE_MODELS: readonly string[] = [
   "claude-haiku-5-5",
   "gemini-4-argon",
   "gemini-3.8-flash",
+  "grok-4.7",
+  "deepseek-v4-pro",
+  "deepseek-flash",
+  "mistral-large",
+  "mistral-small",
 ];

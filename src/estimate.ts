@@ -1,4 +1,4 @@
-import { getModel } from "./catalog.js";
+import { getModel, listModels } from "./catalog.js";
 import { assertTokenCount, describe, LlmTallyError } from "./errors.js";
 import { DEFAULT_COMPARE_MODELS, type ModelInfo } from "./models.js";
 import { estimateTextTokens } from "./tokenize.js";
@@ -38,6 +38,8 @@ export interface EstimateOptions {
 export interface CompareOptions {
   /** Models to compare. Defaults to a few current models from each provider. */
   models?: readonly string[];
+  /** Compare every known model from these providers instead, e.g. `["anthropic", "xai"]`. */
+  providers?: readonly string[];
   /** How many tokens you expect the reply to use. Defaults to 0. */
   outputTokens?: number;
   /** How many of the input tokens are read from the prompt cache. Defaults to 0. */
@@ -95,12 +97,14 @@ const REPLY_OVERHEAD = 3; // tokens that prime the assistant's reply
 /**
  * Estimates how many tokens `input` uses.
  *
+ * @param options A model ID (`"sonnet"`) or `{ model }`. Without a model, counts like GPT-4o and newer.
  * @example
  * countTokens("Hello, world!"); // 4
- * countTokens(messages, { model: "claude-opus-5-5" });
+ * countTokens(messages, "claude-opus-5-5");
  */
-export function countTokens(input: TallyInput, options: CountOptions = {}): number {
-  const family = options.model === undefined ? undefined : getModel(options.model).tokenizer;
+export function countTokens(input: TallyInput, options: CountOptions | string = {}): number {
+  const opts = typeof options === "string" ? { model: options } : (options ?? {});
+  const family = opts.model === undefined ? undefined : getModel(opts.model).tokenizer;
   if (typeof input === "string") return estimateTextTokens(input, family);
   if (!Array.isArray(input)) throw invalidInput(input);
   if (input.length === 0) return 0;
@@ -114,10 +118,13 @@ export function countTokens(input: TallyInput, options: CountOptions = {}): numb
 /**
  * Estimates what sending `input` to `model` costs, in US dollars.
  *
+ * @param options A model ID (`"gpt-5.5"`, `"sonnet"`) or `{ model, outputTokens?, cachedInputTokens? }`.
  * @example
- * const { totalCost } = estimateCost("Summarize this article...", { model: "gpt-5.5", outputTokens: 300 });
+ * estimateCost("Summarize this article...", "gpt-5.5").totalCost;
+ * estimateCost("Summarize this article...", { model: "sonnet", outputTokens: 300 });
  */
-export function estimateCost(input: TallyInput, options: EstimateOptions): CostEstimate {
+export function estimateCost(input: TallyInput, options: EstimateOptions | string): CostEstimate {
+  if (typeof options === "string") options = { model: options };
   if (options === null || typeof options !== "object" || options.model === undefined) {
     throw new LlmTallyError(
       "INVALID_OPTION",
@@ -132,19 +139,25 @@ export function estimateCost(input: TallyInput, options: EstimateOptions): CostE
 /**
  * Prices the same request on several models, cheapest first.
  *
+ * @param options A list of model IDs, or `{ models?, providers?, outputTokens?, cachedInputTokens? }`.
  * @example
- * compareCosts(prompt, { outputTokens: 500 }).map((c) => `${c.model}: ${formatUsd(c.totalCost)}`);
+ * compareCosts(prompt, ["gpt-5.5", "sonnet", "grok"]);
+ * compareCosts(prompt, { providers: ["anthropic"], outputTokens: 500 });
  */
-export function compareCosts(input: TallyInput, options: CompareOptions = {}): CostEstimate[] {
-  const ids = options.models ?? DEFAULT_COMPARE_MODELS;
+export function compareCosts(input: TallyInput, options: CompareOptions | readonly string[] = {}): CostEstimate[] {
+  const opts: CompareOptions = Array.isArray(options) ? { models: options } : ((options as CompareOptions) ?? {});
+  const ids = opts.models ?? (opts.providers === undefined ? DEFAULT_COMPARE_MODELS : providerModels(opts.providers));
   if (!Array.isArray(ids) || ids.length === 0) {
     throw new LlmTallyError(
       "INVALID_OPTION",
       'compareCosts(): "models" must be a non-empty array of model IDs, e.g. ["gpt-5.5", "claude-sonnet-5-5"].',
     );
   }
+  const { outputTokens, cachedInputTokens } = opts;
+  const seen = new Set<string>(); // "sonnet" and "claude-sonnet-5-5" are the same model
   return ids
-    .map((id) => estimateCost(input, { ...options, model: id }))
+    .map((id) => estimateCost(input, { model: id, outputTokens, cachedInputTokens }))
+    .filter((estimate) => !seen.has(estimate.model) && seen.add(estimate.model) !== undefined)
     .sort((a, b) => a.totalCost - b.totalCost || a.model.localeCompare(b.model));
 }
 
@@ -166,18 +179,21 @@ export function costFromUsage(usage: Usage): CostEstimate {
 }
 
 /**
- * Formats a dollar amount for display, keeping enough digits for tiny amounts.
+ * Formats a dollar amount for display: cents from $1 up, three significant digits below,
+ * so small costs stay comparable ($0.0100 vs $0.0201).
  *
  * @example
- * formatUsd(0.000123); // "$0.000123"
  * formatUsd(12.5);     // "$12.50"
+ * formatUsd(0.010048); // "$0.0100"
+ * formatUsd(0.000123); // "$0.000123"
  */
 export function formatUsd(amount: number): string {
   if (!Number.isFinite(amount)) return "$?";
   if (amount === 0) return "$0.00";
-  if (Math.abs(amount) >= 0.01) return `$${amount.toFixed(2)}`;
-  const digits = Math.min(20, 2 - Math.floor(Math.log10(Math.abs(amount))));
-  return `$${Number(amount.toPrecision(3)).toFixed(digits).replace(/0+$/, "")}`;
+  const rounded = Number(amount.toPrecision(3));
+  if (Math.abs(rounded) >= 1) return `$${amount.toFixed(2)}`;
+  const digits = Math.min(20, 2 - Math.floor(Math.log10(Math.abs(rounded))));
+  return `$${rounded.toFixed(digits)}`;
 }
 
 function price(
@@ -237,6 +253,23 @@ function usd(tokensTimesRate: number): number {
 /** Drops floating-point noise (0.030029999999999998 → 0.03003) while keeping tiny amounts exact. */
 function roundUsd(amount: number): number {
   return Math.round(amount * 1e12) / 1e12;
+}
+
+function providerModels(providers: readonly string[]): string[] {
+  if (!Array.isArray(providers) || providers.length === 0) {
+    throw new LlmTallyError(
+      "INVALID_OPTION",
+      'compareCosts(): "providers" must be a non-empty array, e.g. ["anthropic"].',
+    );
+  }
+  const known = [...new Set(listModels().map((m) => m.provider))];
+  return providers.flatMap((p) => {
+    const models = listModels(p);
+    if (models.length === 0) {
+      throw new LlmTallyError("INVALID_OPTION", `Unknown provider "${p}". Known providers: ${known.join(", ")}.`);
+    }
+    return models.map((m) => m.id);
+  });
 }
 
 function messageText(message: ChatMessage, index: number): string {

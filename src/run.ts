@@ -13,32 +13,44 @@ export interface CliIO {
   readStdin: () => Promise<string | undefined>;
 }
 
-const HELP = `llm-tally - estimate tokens and API cost for OpenAI, Anthropic and Google models
+const HELP = `llm-tally - estimate tokens and API cost for OpenAI, Anthropic, Google, xAI, DeepSeek and Mistral models
 
 Usage:
   llm-tally "your prompt text" [options]
   llm-tally --file prompt.txt [options]
   some-command | llm-tally [options]
-  llm-tally --list [provider]
+  llm-tally --list [provider or search]
 
 Options:
-  -m, --model <id>          Model to price. Repeat or comma-separate for several.
-                            Default: ${DEFAULT_COMPARE_MODELS.join(", ")}
-  -f, --file <path>         Read the prompt from a file (UTF-8 or UTF-16).
+  -m, --model <id>          Model to price: an API ID or short name (sonnet, opus, grok, gemini-flash).
+                            Repeat or comma-separate for several.
+  -p, --provider <name>     Compare every model from a provider: openai, anthropic, google, xai,
+                            deepseek, mistral. Repeat or comma-separate for several.
+      --all                 Compare every known model.
   -o, --output-tokens <n>   Expected reply length in tokens, e.g. 500 or 2k. Default: 0
   -c, --cached <n>          Input tokens served from the prompt cache. Default: 0
+  -n, --requests <n>        Also show the total for this many requests, e.g. 10k.
+  -f, --file <path>         Read the prompt from a file (UTF-8 or UTF-16).
       --json                Print machine-readable JSON.
-  -l, --list                List known models and prices (optionally for one provider).
+  -l, --list                List known models, prices and short names.
   -h, --help                Show this help.
   -v, --version             Show the version.
 
+Without -m, -p or --all it compares: ${DEFAULT_COMPARE_MODELS.join(", ")}
+
 Examples:
   llm-tally "Write a haiku about autumn" -o 50
-  llm-tally -f prompt.txt -m gpt-5.5 -m claude-sonnet-5-5
-  llm-tally -f prompt.txt -m gpt-5.5,gemini-4-argon -o 1k --json
-  llm-tally --list anthropic
+  llm-tally -f prompt.txt -m sonnet -m gpt-5.5
+  llm-tally -f prompt.txt -p anthropic -o 1k -n 10k
+  llm-tally -f prompt.txt -m grok,deepseek-flash --json
+  llm-tally --list mistral
 
 Token counts are estimates (usually within 15%). Prices are USD, as of ${PRICES_AS_OF}.`;
+
+const QUICK_USAGE = `Give llm-tally some text to price:
+  llm-tally "your prompt text"
+  llm-tally --file prompt.txt
+  Get-Content prompt.txt | llm-tally     (PowerShell; use cat on macOS/Linux)`;
 
 class UsageError extends Error {}
 
@@ -77,30 +89,42 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
     return 0;
   }
   if (values.list) {
-    printList(positionals[0], values.json === true, io);
+    printList(positionals.join(" ") || undefined, values.json === true, io);
     return 0;
   }
 
   const outputTokens = parseCount("--output-tokens", values["output-tokens"]);
   const cachedInputTokens = parseCount("--cached", values.cached);
-  const models = values.model
-    ?.flatMap((m) => m.split(","))
-    .map((m) => m.trim())
-    .filter(Boolean);
+  const requests = values.requests === undefined ? 1 : parseCount("--requests", values.requests);
+  if (requests < 1) throw new UsageError("--requests must be at least 1.");
+  const models = splitList(values.model);
+  const providers = splitList(values.provider);
 
   const text = await readInput(values.file, positionals, io);
   const results = compareCosts(text, {
-    ...(models && models.length > 0 ? { models } : {}),
+    ...(values.all ? { models: listModels().map((m) => m.id) } : {}),
+    ...(models.length > 0 ? { models } : {}),
+    ...(providers.length > 0 && models.length === 0 ? { providers } : {}),
     outputTokens,
     cachedInputTokens,
   });
 
   if (values.json) {
-    io.stdout(JSON.stringify(results, null, 2));
+    const data =
+      requests > 1 ? results.map((r) => ({ ...r, requests, totalForRequests: r.totalCost * requests })) : results;
+    io.stdout(JSON.stringify(data, null, 2));
   } else {
-    io.stdout(formatTable(results, outputTokens));
+    io.stdout(formatTable(results, outputTokens, requests));
   }
   return 0;
+}
+
+/** Turns repeated and comma-separated flag values into one clean list. */
+function splitList(values: string[] | undefined): string[] {
+  return (values ?? [])
+    .flatMap((v) => v.split(","))
+    .map((v) => v.trim())
+    .filter(Boolean);
 }
 
 function parse(argv: readonly string[]) {
@@ -110,6 +134,9 @@ function parse(argv: readonly string[]) {
     strict: true,
     options: {
       model: { type: "string", short: "m", multiple: true },
+      provider: { type: "string", short: "p", multiple: true },
+      all: { type: "boolean" },
+      requests: { type: "string", short: "n" },
       file: { type: "string", short: "f" },
       "output-tokens": { type: "string", short: "o" },
       cached: { type: "string", short: "c" },
@@ -121,11 +148,11 @@ function parse(argv: readonly string[]) {
   });
 }
 
-/** Parses "500", "2k", "1.5m" into a token count. */
+/** Parses "500", "2k", "1.5m" into a count. */
 function parseCount(flag: string, raw: string | undefined): number {
   if (raw === undefined) return 0;
   const match = /^\s*(\d+(?:\.\d+)?)\s*([km]?)\s*$/i.exec(raw.replace(/[,_]/g, ""));
-  if (!match) throw new UsageError(`${flag} must be a token count like 500, 2k or 1.5m, but got "${raw}".`);
+  if (!match) throw new UsageError(`${flag} must be a number like 500, 2k or 1.5m, but got "${raw}".`);
   const unit = match[2].toLowerCase();
   const scale = unit === "k" ? 1e3 : unit === "m" ? 1e6 : 1;
   return Math.round(Number(match[1]) * scale);
@@ -140,8 +167,8 @@ async function readInput(file: string | undefined, positionals: string[], io: Cl
   }
   if (positionals.length > 0) return positionals.join(" ");
   const piped = await io.readStdin();
-  if (piped === undefined) {
-    throw new UsageError('No input. Pass text in quotes (llm-tally "Hello"), use --file <path>, or pipe text in.');
+  if (piped === undefined || piped.trim() === "") {
+    throw new UsageError(`No input.\n${QUICK_USAGE}`);
   }
   return piped;
 }
@@ -172,50 +199,77 @@ function decode(bytes: Buffer): string {
   return text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
 }
 
-function formatTable(results: CostEstimate[], outputTokens: number): string {
-  const rows = results.map((r) => [
-    r.model,
-    r.provider,
-    r.inputTokens.toLocaleString("en-US"),
-    outputTokens.toLocaleString("en-US"),
-    formatUsd(r.totalCost),
-  ]);
+function formatTable(results: CostEstimate[], outputTokens: number, requests: number): string {
+  const many = requests > 1;
   const header = ["MODEL", "PROVIDER", "INPUT TOKENS", "OUTPUT TOKENS", "COST (USD)"];
+  if (many) header.push(`x ${requests.toLocaleString("en-US")} REQUESTS`);
+  const rows = results.map((r) => {
+    const row = [
+      r.model,
+      r.provider,
+      r.inputTokens.toLocaleString("en-US"),
+      outputTokens.toLocaleString("en-US"),
+      formatUsd(r.totalCost),
+    ];
+    if (many) row.push(formatUsd(r.totalCost * requests));
+    return row;
+  });
   const lines = renderTable(header, rows);
+  const summary: string[] = [];
+  if (results.length > 1) {
+    const cheapest = results[0];
+    const priciest = results[results.length - 1];
+    const ratio = cheapest.totalCost > 0 ? priciest.totalCost / cheapest.totalCost : 0;
+    summary.push(
+      `Cheapest: ${cheapest.model} (${formatUsd(cheapest.totalCost * requests)})` +
+        (ratio >= 1.5 ? `, ${Math.round(ratio)}x cheaper than ${priciest.model}.` : "."),
+    );
+  }
+  if (outputTokens === 0) summary.push("Tip: add -o <n> to include the reply, e.g. -o 500.");
   const warnings = results.flatMap((r) => r.warnings.map((w) => `warning: ${w}`));
   const note = `Token counts are estimates (usually within 15%). Prices as of ${PRICES_AS_OF}.`;
-  return [...lines, "", note, ...warnings].join("\n");
+  return [...lines, "", ...summary, note, ...warnings].join("\n");
 }
 
-function printList(provider: string | undefined, json: boolean, io: CliIO): void {
-  const models = listModels(provider);
+function printList(filter: string | undefined, json: boolean, io: CliIO): void {
+  const all = listModels();
+  const query = filter?.trim().toLowerCase();
+  const byProvider = query === undefined ? [] : listModels(query);
+  const models =
+    query === undefined
+      ? all
+      : byProvider.length > 0
+        ? byProvider
+        : all.filter((m) => [m.id, ...(m.aliases ?? [])].some((name) => name.toLowerCase().includes(query)));
   if (models.length === 0) {
-    const providers = [...new Set(listModels().map((m) => m.provider))].join(", ");
-    throw new UsageError(`No models for provider "${provider}". Known providers: ${providers}.`);
+    const providers = [...new Set(all.map((m) => m.provider))].join(", ");
+    throw new UsageError(`No models match "${filter}". Try a provider (${providers}) or part of a model name.`);
   }
   if (json) {
     io.stdout(JSON.stringify(models, null, 2));
     return;
   }
-  const header = ["MODEL", "PROVIDER", "INPUT $/1M", "CACHED $/1M", "OUTPUT $/1M"];
+  const header = ["MODEL", "PROVIDER", "INPUT $/1M", "CACHED $/1M", "OUTPUT $/1M", "ALSO KNOWN AS"];
   const rows = models.map((m) => [
     m.id,
     m.provider,
     String(m.input),
     m.cachedInput === undefined ? "-" : String(m.cachedInput),
     String(m.output),
+    (m.aliases ?? []).join(", "),
   ]);
   const lines = renderTable(header, rows);
-  io.stdout([...lines, "", `Prices in USD per 1M tokens, as of ${PRICES_AS_OF}.`].join("\n"));
+  io.stdout([...lines, "", `${models.length} models. Prices in USD per 1M tokens, as of ${PRICES_AS_OF}.`].join("\n"));
 }
 
-/** Left-aligns the first two columns, right-aligns the numeric ones. */
+/** Left-aligns text columns (the first two and "ALSO KNOWN AS"), right-aligns the numbers. */
 function renderTable(header: string[], rows: string[][]): string[] {
   const table = [header, ...rows];
   const widths = header.map((_, col) => Math.max(...table.map((row) => row[col].length)));
+  const isText = (col: number) => col < 2 || header[col] === "ALSO KNOWN AS";
   return table.map((row) =>
     row
-      .map((cell, col) => (col >= 2 ? cell.padStart(widths[col]) : cell.padEnd(widths[col])))
+      .map((cell, col) => (isText(col) ? cell.padEnd(widths[col]) : cell.padStart(widths[col])))
       .join("  ")
       .trimEnd(),
   );

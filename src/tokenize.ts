@@ -10,6 +10,10 @@ const FAMILY_FACTOR: Record<TokenizerFamily, number> = {
   anthropic: 1.3,
   "anthropic-legacy": 1.1,
   google: 1,
+  // Not measured against the real tokenizers yet; treat as rough.
+  xai: 1,
+  deepseek: 1.05,
+  mistral: 1.1,
 };
 
 // One alternative per kind of text piece; the capture group that matches tells us which kind it is.

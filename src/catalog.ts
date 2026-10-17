@@ -2,12 +2,24 @@ import { describe, LlmTallyError } from "./errors.js";
 import { BUILTIN_MODELS, type ModelInfo, type Provider } from "./models.js";
 
 const registry = new Map<string, ModelInfo>();
-for (const model of BUILTIN_MODELS) registry.set(model.id, model);
+// Lower-case alias ("sonnet", "mistral-small-2603") -> model ID.
+const aliases = new Map<string, string>();
+for (const model of BUILTIN_MODELS) add(model);
 
-// Prefixes that other platforms put in front of the same model ID.
+function add(model: ModelInfo): void {
+  registry.set(model.id, model);
+  for (const alias of model.aliases ?? []) aliases.set(alias.toLowerCase(), model.id);
+}
+
+function lookup(key: string): ModelInfo | undefined {
+  const viaAlias = aliases.get(key);
+  return registry.get(key) ?? (viaAlias === undefined ? undefined : registry.get(viaAlias));
+}
+
+// Prefixes that other platforms (Vertex, Bedrock, OpenRouter, LiteLLM) put in front of the same model ID.
 const PREFIXES = [
   /^models\//,
-  /^(openai|anthropic|google|gemini|vertex_ai|bedrock)\//,
+  /^(openai|anthropic|google|gemini|vertex_ai|bedrock|xai|x-ai|deepseek|mistral|mistralai)\//,
   /^(us\.|eu\.|apac\.|global\.)?anthropic\./,
 ];
 // Dated snapshots: "gpt-4o-2024-08-06", "claude-haiku-4-5-20251001", "claude-opus-4-5@20251101", "-latest".
@@ -20,8 +32,9 @@ function normalize(id: string): string {
 }
 
 /**
- * Looks up a model by ID. Accepts provider prefixes (`openai/gpt-5.5`, `models/gemini-2.5-pro`),
- * Bedrock IDs (`anthropic.claude-opus-5-5`) and dated snapshots (`gpt-4o-2024-08-06`).
+ * Looks up a model by ID or short name. Accepts aliases (`sonnet`, `grok`, `gemini-flash`),
+ * provider prefixes (`openai/gpt-5.5`, `x-ai/grok-4.7`, `models/gemini-2.5-pro`),
+ * Bedrock IDs (`anthropic.claude-opus-5-5`) and dated snapshots (`gpt-4o-2024-08-06`, `mistral-large-latest`).
  *
  * @throws {LlmTallyError} `UNKNOWN_MODEL` with the closest known IDs when nothing matches.
  */
@@ -48,7 +61,7 @@ export function findModel(id: string): ModelInfo | undefined {
   const exact = registry.get(id);
   if (exact) return exact;
   let key = normalize(id);
-  const direct = registry.get(key);
+  const direct = lookup(key);
   if (direct) return direct;
   // Strip one suffix at a time ("...-20240620-v1:0" needs two passes) until something matches.
   let changed = true;
@@ -59,7 +72,7 @@ export function findModel(id: string): ModelInfo | undefined {
       if (stripped !== key) {
         key = stripped;
         changed = true;
-        const hit = registry.get(key);
+        const hit = lookup(key);
         if (hit) return hit;
       }
     }
@@ -103,11 +116,14 @@ export function registerModel(model: ModelInfo): void {
       );
     }
   }
-  registry.set(model.id, { ...model, provider: model.provider.toLowerCase() });
+  if (model.aliases !== undefined && !Array.isArray(model.aliases)) {
+    throw new LlmTallyError("INVALID_OPTION", `registerModel("${model.id}"): "aliases" must be an array of strings.`);
+  }
+  add({ ...model, provider: model.provider.toLowerCase() });
 }
 
 function closestIds(key: string, count: number): string[] {
-  return [...registry.keys()]
+  return [...new Set([...registry.keys(), ...aliases.keys()])]
     .map((id) => ({ id, d: distance(key, id) }))
     .sort((a, b) => a.d - b.d)
     .slice(0, count)
