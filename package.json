@@ -1,0 +1,59 @@
+{
+  "name": "llm-tally",
+  "version": "0.1.0",
+  "description": "Estimate tokens and API cost for OpenAI, Anthropic Claude and Google Gemini models. Zero dependencies, typed, with a CLI.",
+  "keywords": [
+    "llm",
+    "tokens",
+    "token-counter",
+    "cost",
+    "pricing",
+    "openai",
+    "anthropic",
+    "claude",
+    "gemini",
+    "cli"
+  ],
+  "homepage": "https://github.com/acus9345/llm-tally#readme",
+  "bugs": {
+    "url": "https://github.com/acus9345/llm-tally/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/acus9345/llm-tally.git"
+  },
+  "license": "MIT",
+  "author": "acus9345 <acus9345@gmail.com>",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "llm-tally": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "npm run build && node --test \"test/*.test.ts\"",
+    "lint": "npm run build && biome check . && tsc --noEmit -p tsconfig.json",
+    "format": "biome check --write .",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.15",
+    "@types/node": "22.20.5",
+    "typescript": "6.0.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
