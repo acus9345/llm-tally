@@ -57,7 +57,7 @@
     "prepack": "npm run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
+    "@biomejs/biome": "2.6.2",
     "@types/node": "22.20.5",
     "esbuild": "0.28.2",
     "typescript": "6.0.3"
