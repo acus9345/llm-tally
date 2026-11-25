@@ -71,14 +71,21 @@ describe("cli", () => {
     const text = "Hello from Windows\r\nSecond line";
     const utf8 = join(dir, "bom.txt");
     const utf16 = join(dir, "utf16.txt");
+    const utf16beOdd = join(dir, "utf16be-odd.txt");
     writeFileSync(utf8, `﻿${text}`, "utf8");
     writeFileSync(utf16, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, "utf16le")]));
+    const be = Buffer.from("hi", "utf16le");
+    be.swap16();
+    writeFileSync(utf16beOdd, Buffer.concat([Buffer.from([0xfe, 0xff]), be, Buffer.from([0x00])]));
     const plain = await cli([text, "-m", "gpt-5.5", "--json"]);
     for (const file of [utf8, utf16]) {
       const r = await cli(["-f", file, "-m", "gpt-5.5", "--json"]);
       assert.equal(r.code, 0, r.err);
       assert.equal(JSON.parse(r.out)[0].inputTokens, JSON.parse(plain.out)[0].inputTokens);
     }
+    const oddRes = await cli(["-f", utf16beOdd, "-m", "gpt-5.5", "--json"]);
+    assert.equal(oddRes.code, 0, oddRes.err);
+    assert.equal(JSON.parse(oddRes.out)[0].inputTokens, 1);
   });
 
   test("--list, with and without a provider", async () => {
@@ -95,6 +102,9 @@ describe("cli", () => {
     const search = await cli(["--list", "sonnet"]);
     assert.match(search.out, /claude-sonnet-5-5\s.*sonnet, claude-sonnet/);
     assert.doesNotMatch(search.out, /opus/);
+    const uiList = await cli(["--list", "ui"]);
+    assert.equal(uiList.code, 0);
+    assert.match(uiList.out, /grok-build-0\.1/);
   });
 
   test("short names, provider prefixes and new providers", async () => {
@@ -146,6 +156,18 @@ describe("cli", () => {
     const table = await cli(["hi", "-m", "sonnet,gpt-4.1", "-o", "500", "-e", "medium"]);
     assert.match(table.out, /4,500/);
     assert.match(table.out, /thinking tokens on models that reason/);
+    const onlyReasoning = await cli(["hi", "-m", "sonnet,opus", "-o", "500", "-e", "medium"]);
+    assert.match(onlyReasoning.out, /thinking tokens on models that reason/);
+    const onlyNonReasoning = await cli(["hi", "-m", "gpt-4.1,gpt-4o", "-o", "500", "-e", "medium"]);
+    assert.doesNotMatch(onlyNonReasoning.out, /thinking tokens on models that reason/);
+  });
+
+  test("--requests JSON rounds totalForRequests cleanly", async () => {
+    const r = await cli(["Hello world!!", "-m", "gpt-5.5", "-o", "1000", "-n", "3", "--json"]);
+    assert.equal(r.code, 0, r.err);
+    const [row] = JSON.parse(r.out) as { totalCost: number; totalForRequests: number }[];
+    assert.equal(row.totalForRequests, Math.round(row.totalCost * 3 * 1e12) / 1e12);
+    assert.ok(!String(row.totalForRequests).includes("000000"));
   });
 
   test("hints at -o when no reply length is given", async () => {
@@ -160,6 +182,11 @@ describe("cli", () => {
       [["hi", "-o", "lots"], /--output-tokens must be a number/, 2],
       [["hi", "-n", "0"], /--requests must be at least 1/, 2],
       [["hi", "-e", "extreme"], /--effort must be one of none, low, medium, high, max/, 2],
+      [["hi", "-e", "constructor"], /--effort must be one of none, low, medium, high, max/, 2],
+      [["hi", "-e", "__proto__"], /--effort must be one of none, low, medium, high, max/, 2],
+      [["hi", "-m", ""], /--model requires at least one model ID/, 2],
+      [["hi", "-p", " , "], /--provider requires at least one provider name/, 2],
+      [["hi", "-o", "9".repeat(400)], /--output-tokens is too large/, 2],
       [["hi", "-p", "nobody"], /Unknown provider "nobody"/, 1],
       [["hi", "-m", "gpt-55"], /Unknown model "gpt-55"/, 1],
       [["-f", join(dir, "missing.txt")], /File not found/, 2],
@@ -185,6 +212,9 @@ describe("cli", () => {
     assert.match(html, /LlmTally/);
     assert.doesNotMatch(html, /__LLM_TALLY_BUNDLE__|__VERSION__/);
     assert.doesNotMatch(html, /<script[^>]+src=/); // fully self-contained, works from file://
+    const priced = await cli(["ui", "-m", "gpt-5.5", "--json"]);
+    assert.equal(priced.code, 0, priced.err);
+    assert.equal(JSON.parse(priced.out)[0].model, "gpt-5.5");
   });
 
   test("the real binary runs and pipes stdin", () => {

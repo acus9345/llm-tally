@@ -63,5 +63,6 @@ function newlineGroups(ws: string): number {
 /** Estimates how many tokens `text` uses for the given tokenizer family. Returns 0 for "". */
 export function estimateTextTokens(text: string, family: TokenizerFamily = "openai-o200k"): number {
   if (text.length === 0) return 0;
-  return Math.max(1, Math.round(baseTokens(text) * FAMILY_FACTOR[family]));
+  const factor = Object.hasOwn(FAMILY_FACTOR, family) ? FAMILY_FACTOR[family] : 1;
+  return Math.max(1, Math.round(baseTokens(text) * factor));
 }

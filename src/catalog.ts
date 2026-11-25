@@ -85,7 +85,10 @@ export function findModel(id: string): ModelInfo | undefined {
 /** Lists known models, optionally only those from one provider. */
 export function listModels(provider?: Provider): ModelInfo[] {
   const all = [...registry.values()];
-  return provider === undefined ? all : all.filter((m) => m.provider === provider.toLowerCase());
+  if (provider === undefined) return all;
+  if (typeof provider !== "string") return [];
+  const p = provider.toLowerCase();
+  return all.filter((m) => m.provider === p);
 }
 
 /**
@@ -102,7 +105,7 @@ export function registerModel(model: ModelInfo): void {
   if (typeof model.id !== "string" || model.id.trim() === "") {
     throw new LlmTallyError("INVALID_OPTION", 'registerModel(): "id" must be a non-empty string, e.g. "my-model".');
   }
-  if (typeof model.provider !== "string" || model.provider === "") {
+  if (typeof model.provider !== "string" || model.provider.trim() === "") {
     throw new LlmTallyError(
       "INVALID_OPTION",
       `registerModel("${model.id}"): "provider" must be a string, e.g. "openai".`,
@@ -118,7 +121,38 @@ export function registerModel(model: ModelInfo): void {
       );
     }
   }
-  if (model.aliases !== undefined && !Array.isArray(model.aliases)) {
+  if (
+    model.requestFee !== undefined &&
+    (typeof model.requestFee !== "number" || !Number.isFinite(model.requestFee) || model.requestFee < 0)
+  ) {
+    throw new LlmTallyError(
+      "INVALID_OPTION",
+      `registerModel("${model.id}"): "requestFee" must be a number >= 0, but got ${describe(model.requestFee)}.`,
+    );
+  }
+  if (model.longContext !== undefined) {
+    const lc = model.longContext;
+    if (lc === null || typeof lc !== "object") {
+      throw new LlmTallyError(
+        "INVALID_OPTION",
+        `registerModel("${model.id}"): "longContext" must be an object with threshold, input, and output.`,
+      );
+    }
+    for (const field of ["threshold", "input", "output", "cachedInput"] as const) {
+      const value = lc[field];
+      if (value === undefined && field === "cachedInput") continue;
+      if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+        throw new LlmTallyError(
+          "INVALID_OPTION",
+          `registerModel("${model.id}"): "longContext.${field}" must be a number >= 0, but got ${describe(value)}.`,
+        );
+      }
+    }
+  }
+  if (
+    model.aliases !== undefined &&
+    (!Array.isArray(model.aliases) || model.aliases.some((alias) => typeof alias !== "string"))
+  ) {
     throw new LlmTallyError("INVALID_OPTION", `registerModel("${model.id}"): "aliases" must be an array of strings.`);
   }
   add({ ...model, provider: model.provider.toLowerCase() });

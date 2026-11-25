@@ -215,14 +215,13 @@ function thinking(options: ReplyOptions): number {
     return options.reasoningTokens;
   }
   if (options.effort === undefined) return 0;
-  const tokens = EFFORT_REASONING_TOKENS[options.effort];
-  if (tokens === undefined) {
+  if (!Object.hasOwn(EFFORT_REASONING_TOKENS, options.effort)) {
     throw new LlmTallyError(
       "INVALID_OPTION",
       `effort must be one of ${Object.keys(EFFORT_REASONING_TOKENS).join(", ")}, but got ${describe(options.effort)}.`,
     );
   }
-  return tokens;
+  return EFFORT_REASONING_TOKENS[options.effort];
 }
 
 function price(
@@ -308,7 +307,7 @@ function providerModels(providers: readonly string[]): string[] {
 }
 
 function messageText(message: ChatMessage, index: number): string {
-  if (message === null || typeof message !== "object") {
+  if (message === null || typeof message !== "object" || Array.isArray(message)) {
     throw new LlmTallyError(
       "INVALID_INPUT",
       `Message ${index} must be an object like { role: "user", content: "Hi" }, but got ${describe(message)}.`,

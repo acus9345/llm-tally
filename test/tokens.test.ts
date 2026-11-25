@@ -71,6 +71,7 @@ describe("countTokens", () => {
 
   test("rejects malformed messages", () => {
     assert.throws(() => countTokens([null as never]), /Message 0 must be an object/);
+    assert.throws(() => countTokens([[] as never]), /Message 0 must be an object/);
     assert.throws(() => countTokens([{ role: "user" } as never]), /Message 0 has no text content/);
   });
 

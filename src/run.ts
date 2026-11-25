@@ -96,12 +96,24 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
     io.stdout(readVersion());
     return 0;
   }
-  if (positionals.length === 1 && positionals[0].toLowerCase() === "ui" && values.file === undefined) {
-    return openUi(values["no-open"] === true, io);
-  }
   if (values.list) {
     printList(positionals.join(" ") || undefined, values.json === true, io);
     return 0;
+  }
+  const isUiCommand =
+    positionals.length === 1 &&
+    positionals[0].toLowerCase() === "ui" &&
+    values.file === undefined &&
+    values.model === undefined &&
+    values.provider === undefined &&
+    !values.all &&
+    values.effort === undefined &&
+    values["output-tokens"] === undefined &&
+    values.requests === undefined &&
+    values.cached === undefined &&
+    !values.json;
+  if (isUiCommand) {
+    return openUi(values["no-open"] === true, io);
   }
 
   const outputTokens = parseCount("--output-tokens", values["output-tokens"]);
@@ -111,6 +123,12 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
   if (requests < 1) throw new UsageError("--requests must be at least 1.");
   const models = splitList(values.model);
   const providers = splitList(values.provider);
+  if (values.model !== undefined && models.length === 0) {
+    throw new UsageError("--model requires at least one model ID, e.g. -m gpt-5.5.");
+  }
+  if (values.provider !== undefined && providers.length === 0) {
+    throw new UsageError("--provider requires at least one provider name, e.g. -p anthropic.");
+  }
 
   const text = await readInput(values.file, positionals, io);
   const results = compareCosts(text, {
@@ -124,7 +142,9 @@ async function run(argv: readonly string[], io: CliIO): Promise<number> {
 
   if (values.json) {
     const data =
-      requests > 1 ? results.map((r) => ({ ...r, requests, totalForRequests: r.totalCost * requests })) : results;
+      requests > 1
+        ? results.map((r) => ({ ...r, requests, totalForRequests: Math.round(r.totalCost * requests * 1e12) / 1e12 }))
+        : results;
     io.stdout(JSON.stringify(data, null, 2));
   } else {
     io.stdout(formatTable(results, requests, effort));
@@ -173,7 +193,9 @@ function parseCount(flag: string, raw: string | undefined): number {
   if (!match) throw new UsageError(`${flag} must be a number like 500, 2k or 1.5m, but got "${raw}".`);
   const unit = match[2].toLowerCase();
   const scale = unit === "k" ? 1e3 : unit === "m" ? 1e6 : 1;
-  return Math.round(Number(match[1]) * scale);
+  const count = Math.round(Number(match[1]) * scale);
+  if (!Number.isFinite(count)) throw new UsageError(`${flag} is too large: "${raw}".`);
+  return count;
 }
 
 async function readInput(file: string | undefined, positionals: string[], io: CliIO): Promise<string> {
@@ -209,7 +231,9 @@ export function readTextFile(path: string): string {
 function decode(bytes: Buffer): string {
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return bytes.subarray(2).toString("utf16le");
   if (bytes[0] === 0xfe && bytes[1] === 0xff) {
-    const swapped = Buffer.from(bytes.subarray(2));
+    const payload = bytes.subarray(2);
+    const even = payload.length - (payload.length % 2);
+    const swapped = Buffer.from(payload.subarray(0, even));
     swapped.swap16();
     return swapped.toString("utf16le");
   }
@@ -221,7 +245,7 @@ function decode(bytes: Buffer): string {
 function parseEffort(raw: string | undefined): ReasoningEffort {
   if (raw === undefined) return "none";
   const level = raw.trim().toLowerCase();
-  if (level in EFFORT_REASONING_TOKENS) return level as ReasoningEffort;
+  if (Object.hasOwn(EFFORT_REASONING_TOKENS, level)) return level as ReasoningEffort;
   throw new UsageError(`--effort must be one of ${Object.keys(EFFORT_REASONING_TOKENS).join(", ")}, but got "${raw}".`);
 }
 
@@ -253,7 +277,7 @@ function formatTable(results: CostEstimate[], requests: number, effort: Reasonin
   }
   if (results.every((r) => r.outputTokens === 0)) {
     summary.push("Tip: add -o 500 for the answer and -e medium for thinking, to include the reply.");
-  } else if (effort !== "none" && results.some((r) => r.reasoningTokens === 0)) {
+  } else if (effort !== "none" && results.some((r) => r.reasoningTokens > 0)) {
     summary.push(
       `Output includes ~${EFFORT_REASONING_TOKENS[effort].toLocaleString("en-US")} thinking tokens on models that reason.`,
     );

@@ -176,7 +176,35 @@ describe("model catalog", () => {
     close(long.totalCost, 10);
     assert.throws(() => registerModel({ id: "x", provider: "p", input: -1, output: 1 }), /"input" must be a price/);
     assert.throws(() => registerModel({ id: "", provider: "p", input: 1, output: 1 }), /"id" must be/);
+    assert.throws(() => registerModel({ id: "x", provider: "   ", input: 1, output: 1 }), /"provider" must be/);
+    assert.throws(
+      () => registerModel({ id: "x", provider: "p", input: 1, output: 1, requestFee: -0.1 }),
+      /"requestFee" must be/,
+    );
+    assert.throws(
+      () => registerModel({ id: "x", provider: "p", input: 1, output: 1, aliases: [123 as never] }),
+      /"aliases" must be/,
+    );
+    assert.throws(
+      () =>
+        registerModel({
+          id: "x",
+          provider: "p",
+          input: 1,
+          output: 1,
+          longContext: { threshold: -1, input: 1, output: 2 },
+        }),
+      /"longContext\.threshold" must be/,
+    );
     assert.throws(() => registerModel(null as never), /needs a model object/);
+    registerModel({
+      id: "custom-tok",
+      provider: "custom-provider",
+      input: 1,
+      output: 2,
+      tokenizer: "unknown-fam" as never,
+    });
+    assert.ok(Number.isFinite(countTokens("Hello world", "custom-tok")));
   });
 });
 
@@ -217,6 +245,7 @@ describe("ease of use", () => {
     const results = compareCosts("Hello", { providers: ["deepseek"] });
     assert.deepEqual(results.map((r) => r.model).sort(), ["deepseek-flash", "deepseek-v4-pro"]);
     assert.throws(() => compareCosts("Hello", { providers: ["nobody"] }), /Unknown provider "nobody"/);
+    assert.throws(() => compareCosts("Hello", { providers: [123 as never] }), /Unknown provider "123"/);
   });
 
   test("registerModel accepts aliases", () => {
@@ -273,6 +302,14 @@ describe("reasoning effort", () => {
   test("reasoningTokens overrides effort; bad values explain themselves", () => {
     assert.equal(estimateCost("Hello", { model: "sonnet", effort: "max", reasoningTokens: 123 }).reasoningTokens, 123);
     assert.throws(() => estimateCost("Hello", { model: "sonnet", effort: "huge" as never }), /effort must be one of/);
+    assert.throws(
+      () => estimateCost("Hello", { model: "sonnet", effort: "toString" as never }),
+      /effort must be one of/,
+    );
+    assert.throws(
+      () => estimateCost("Hello", { model: "sonnet", effort: "constructor" as never }),
+      /effort must be one of/,
+    );
     assert.throws(() => estimateCost("Hello", { model: "sonnet", reasoningTokens: -1 }), /reasoningTokens must be/);
   });
 

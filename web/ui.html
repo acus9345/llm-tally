@@ -219,15 +219,20 @@
     get(key, fallback) { try { const v = localStorage.getItem("llm-tally:" + key); return v === null ? fallback : JSON.parse(v); } catch { return fallback; } },
     set(key, value) { try { localStorage.setItem("llm-tally:" + key, JSON.stringify(value)); } catch {} },
   };
+  const savedInt = (key, fallback, min, max = Infinity) => {
+    const n = store.get(key, fallback);
+    return typeof n === "number" && Number.isFinite(n) && n >= min && n <= max ? Math.round(n) : fallback;
+  };
+  const savedProviders = store.get("providers2", providers);
   const state = {
     effort: store.get("effort", "medium"),
-    requests: store.get("requests", 1),
-    answer: store.get("answer", 500),
-    cache: store.get("cache", 0),
-    providers: new Set(store.get("providers2", providers)),
-    showAll: store.get("showAll", false),
+    requests: savedInt("requests", 1, 1),
+    answer: savedInt("answer", 500, 0),
+    cache: savedInt("cache", 0, 0, 100),
+    providers: new Set(Array.isArray(savedProviders) ? savedProviders.filter((p) => typeof p === "string") : providers),
+    showAll: Boolean(store.get("showAll", false)),
   };
-  if (!(state.effort in T.EFFORT_REASONING_TOKENS)) state.effort = "medium";
+  if (typeof state.effort !== "string" || !Object.hasOwn(T.EFFORT_REASONING_TOKENS, state.effort)) state.effort = "medium";
 
   $("model-count").textContent = models.length;
   $("provider-count").textContent = providers.length;
@@ -266,7 +271,8 @@
   function compute() {
     const text = $("prompt").value;
     const query = $("search").value.trim().toLowerCase();
-    const matches = (m) => [m.id, NAMES[m.provider] || "", ...(m.aliases || [])].some((n) => n.toLowerCase().includes(query));
+    const matches = (m) =>
+      [m.id, m.provider, NAMES[m.provider] || "", ...(m.aliases || [])].some((n) => n.toLowerCase().includes(query));
     const chosen = models.filter((m) => {
       if (query) return matches(m);
       if (!state.providers.has(m.provider)) return false;
@@ -413,13 +419,21 @@
   $("search").addEventListener("input", schedule);
   pick($("effort"), (v) => { state.effort = v; update(); });
   pick($("req-presets"), (v) => { state.requests = Number(v); $("requests").value = v; update(); });
-  $("requests").addEventListener("input", () => { state.requests = Math.max(1, Math.round(Number($("requests").value) || 1)); update(); });
+  $("requests").addEventListener("input", () => {
+    const n = Math.round(Number($("requests").value));
+    state.requests = Number.isFinite(n) && n >= 1 ? n : 1;
+    update();
+  });
   pick($("providers"), (v) => { if (state.providers.has(v)) state.providers.delete(v); else state.providers.add(v); update(); });
   $("all-providers").addEventListener("click", () => {
     state.providers = state.providers.size === providers.length ? new Set() : new Set(providers);
     update();
   });
-  $("answer").addEventListener("input", () => { state.answer = Math.max(0, Math.round(Number($("answer").value) || 0)); update(); });
+  $("answer").addEventListener("input", () => {
+    const n = Math.round(Number($("answer").value));
+    state.answer = Number.isFinite(n) && n >= 0 ? n : 0;
+    update();
+  });
   $("cache").addEventListener("input", () => { state.cache = Number($("cache").value); update(); });
   $("show-all").addEventListener("click", () => { state.showAll = !state.showAll; update(); });
 

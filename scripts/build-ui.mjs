@@ -17,7 +17,7 @@ const result = await build({
   legalComments: "none",
 });
 
-const bundle = result.outputFiles[0].text.replaceAll("</script", "<\\/script");
+const bundle = result.outputFiles[0].text.replace(/<\/script/gi, "<\\/script");
 const template = readFileSync(new URL("web/ui.html", root), "utf8");
 const html = template.replace("/*__LLM_TALLY_BUNDLE__*/", () => bundle).replaceAll("__VERSION__", version);
 
