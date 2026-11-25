@@ -1,6 +1,11 @@
-# Changelog
+﻿# Changelog
 
 All notable changes to this project are documented here. This project follows [Semantic Versioning](https://semver.org/).
+
+## [0.1.1] - 2026-11-25
+
+### Fixed
+- Fix prototype-property guards, thinking-token summary condition, ui subcommand dispatch, odd-length UTF-16BE handling, and web UI provider search.
 
 ## [0.1.0] - 2026-10-17
 
